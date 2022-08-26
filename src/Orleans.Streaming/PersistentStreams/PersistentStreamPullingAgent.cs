@@ -38,7 +38,7 @@ namespace Orleans.Streams
 
         private Task receiverInitTask;
         private bool IsShutdown => timer == null;
-        private string StatisticUniquePostfix => streamProviderName + "." + QueueId;
+        private string StatisticUniquePostfix => $"{streamProviderName}.{QueueId}";
 
         internal PersistentStreamPullingAgent(
             SystemTargetGrainId id,
@@ -52,7 +52,7 @@ namespace Orleans.Streams
             IQueueAdapter queueAdapter,
             IQueueAdapterCache queueAdapterCache,
             IStreamFailureHandler streamFailureHandler)
-            : base(id, siloAddress, true, loggerFactory)
+            : base(id, siloAddress, loggerFactory)
         {
             if (strProviderName == null) throw new ArgumentNullException("runtime", "PersistentStreamPullingAgent: strProviderName should not be null");
 
@@ -132,7 +132,7 @@ namespace Orleans.Streams
             try
             {
                 receiverInitTask = OrleansTaskExtentions.SafeExecute(() => receiver.Initialize(this.options.InitQueueTimeout))
-                    .LogException(logger, ErrorCode.PersistentStreamPullingAgent_03, $"QueueAdapterReceiver {QueueId.ToStringWithHashCode()} failed to Initialize.");
+                    .LogException(logger, ErrorCode.PersistentStreamPullingAgent_03, $"QueueAdapterReceiver {QueueId:H} failed to Initialize.");
                 receiverInitTask.Ignore();
             }
             catch
@@ -296,11 +296,14 @@ namespace Orleans.Streams
                     if (requestedHandshakeToken != null)
                     {
                         consumerData.SafeDisposeCursor(logger);
+                        // The handshake token points to an already processed event, we need to advance the cursor to
+                        // the next event.
                         consumerData.Cursor = queueCache.GetCacheCursor(consumerData.StreamId, requestedHandshakeToken.Token);
+                        consumerData.Cursor.MoveNext(); //
                     }
                     else
                     {
-                        if (consumerData.Cursor == null) // if the consumer did not ask for a specific token and we already have a cursor, jsut keep using it.
+                        if (consumerData.Cursor == null) // if the consumer did not ask for a specific token and we already have a cursor, just keep using it.
                             consumerData.Cursor = queueCache.GetCacheCursor(consumerData.StreamId, cacheToken);
                     }
                 }
@@ -614,6 +617,9 @@ namespace Orleans.Streams
                             {
                                 consumerData.LastToken = newToken;
                                 IQueueCacheCursor newCursor = queueCache.GetCacheCursor(consumerData.StreamId, newToken.Token);
+                                // The handshake token points to an already processed event, we need to advance the cursor to
+                                // the next event.
+                                newCursor.MoveNext();
                                 consumerData.SafeDisposeCursor(logger);
                                 consumerData.Cursor = newCursor;
                             }

@@ -47,6 +47,7 @@ namespace ServiceBus.Tests.StreamingTests
             public void Configure(ISiloBuilder hostBuilder)
             {
                 hostBuilder
+                    .AddMemoryGrainStorageAsDefault()
                     .AddMemoryGrainStorage("PubSubStore")
                     .AddEventHubStreams(StreamProviderName, b =>
                     {

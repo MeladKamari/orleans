@@ -31,6 +31,7 @@ namespace Tester.StreamingTests
             public void Configure(ISiloBuilder hostBuilder)
             {
                 hostBuilder
+                    .AddMemoryGrainStorageAsDefault()
                     .AddMemoryGrainStorage("PubSubStore")
                     .AddMemoryStreams<DefaultMemoryMessageBodySerializer>(StreamProviderName, b =>
                     {
