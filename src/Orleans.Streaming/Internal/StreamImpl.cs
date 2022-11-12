@@ -14,10 +14,10 @@ namespace Orleans.Streams
     [SerializationCallbacks(typeof(OnDeserializedCallbacks))]
     internal sealed class StreamImpl<T> : IAsyncStream<T>, IStreamControl, IOnDeserialized
     {
-        [Id(1)]
-        private readonly InternalStreamId                        streamId;
+        [Id(0)]
+        private readonly QualifiedStreamId                        streamId;
 
-        [Id(2)]
+        [Id(1)]
         private readonly bool                                    isRewindable;
 
         [NonSerialized]
@@ -35,25 +35,24 @@ namespace Orleans.Streams
         [NonSerialized]
         private IRuntimeClient?                                  runtimeClient;
 
-        internal InternalStreamId InternalStreamId { get { return streamId; } }
+        internal QualifiedStreamId InternalStreamId { get { return streamId; } }
         public StreamId StreamId => streamId;
 
         public bool IsRewindable => isRewindable;
         public string ProviderName => streamId.ProviderName;
 
-        // IMPORTANT: This constructor needs to be public for Json deserialization to work.
+        // Constructor for Orleans serialization, otherwise initLock is null
         public StreamImpl()
         {
         }
 
-        internal StreamImpl(InternalStreamId streamId, IInternalStreamProvider provider, bool isRewindable, IRuntimeClient runtimeClient)
+        public StreamImpl(QualifiedStreamId streamId, IInternalStreamProvider provider, bool isRewindable, IRuntimeClient runtimeClient)
         {
             this.streamId = streamId;
             this.provider = provider ?? throw new ArgumentNullException(nameof(provider));
             this.runtimeClient = runtimeClient ?? throw new ArgumentNullException(nameof(runtimeClient));
             producerInterface = null;
             consumerInterface = null;
-            initLock = new object();
             this.isRewindable = isRewindable;
         }
 

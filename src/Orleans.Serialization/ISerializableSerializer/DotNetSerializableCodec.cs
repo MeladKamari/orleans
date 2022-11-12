@@ -14,7 +14,7 @@ namespace Orleans.Serialization
     /// <summary>
     /// Serializer for types which implement the <see cref="ISerializable"/> pattern.
     /// </summary>
-    [WellKnownAlias("ISerializable")]
+    [Alias("ISerializable")]
     public class DotNetSerializableCodec : IGeneralizedCodec
     {
         public static readonly Type CodecType = typeof(DotNetSerializableCodec);
@@ -78,19 +78,19 @@ namespace Orleans.Serialization
         [SecurityCritical]
         public object ReadValue<TInput>(ref Reader<TInput> reader, Field field)
         {
-            if (field.WireType == WireType.Reference)
+            if (field.IsReference)
             {
-                return ReferenceCodec.ReadReference<object, TInput>(ref reader, field);
+                return ReferenceCodec.ReadReference(ref reader, field.FieldType);
             }
+
+            field.EnsureWireTypeTagDelimited();
 
             var placeholderReferenceId = ReferenceCodec.CreateRecordPlaceholder(reader.Session);
             Type type;
             var header = reader.ReadFieldHeader();
-            var flags = Int32Codec.ReadValue(ref reader, header);
-            if (flags == 1)
+            if (header.FieldIdDelta == 1)
             {
                 // This is an exception type, so deserialize it as an exception.
-                header = reader.ReadFieldHeader();
                 var typeName = StringCodec.ReadValue(ref reader, header);
                 if (!_typeConverter.TryParse(typeName, out type))
                 {
@@ -99,14 +99,13 @@ namespace Orleans.Serialization
             }
             else
             {
-                header = reader.ReadFieldHeader();
                 type = TypeSerializerCodec.ReadValue(ref reader, header);
-            }
 
-            if (type.IsValueType)
-            {
-                var serializer = _valueTypeSerializerFactory.GetSerializer(type);
-                return serializer.ReadValue(ref reader, type);
+                if (type.IsValueType)
+                {
+                    var serializer = _valueTypeSerializerFactory.GetSerializer(type);
+                    return serializer.ReadValue(ref reader, type);
+                }
             }
 
             return ReadObject(ref reader, type, placeholderReferenceId);
@@ -176,19 +175,13 @@ namespace Orleans.Serialization
             // Serialize the type name according to the value populated in the SerializationInfo.
             if (value is Exception)
             {
-                // Indicate that this is an exception
-                Int32Codec.WriteField(ref writer, 0, typeof(int), 1);
-
                 // For exceptions, the type is serialized as a string to facilitate safe deserialization.
                 var typeName = _typeConverter.Format(info.ObjectType);
                 StringCodec.WriteField(ref writer, 1, typeof(string), typeName);
             }
             else
             {
-                // Indicate that this is not an exception
-                Int32Codec.WriteField(ref writer, 0, typeof(int), 0);
-
-                TypeSerializerCodec.WriteField(ref writer, 1, typeof(Type), info.ObjectType);
+                TypeSerializerCodec.WriteField(ref writer, 0, typeof(Type), info.ObjectType);
             }
 
             callbacks.OnSerializing?.Invoke(value, _streamingContext);

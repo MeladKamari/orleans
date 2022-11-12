@@ -12,7 +12,7 @@ namespace Orleans.Serialization.Codecs
     /// Serializer for <see cref="IPEndPoint"/>.
     /// </summary>
     [RegisterSerializer]
-    public sealed class IPEndPointCodec : IFieldCodec<IPEndPoint>
+    public sealed class IPEndPointCodec : IFieldCodec<IPEndPoint>, IDerivedTypeCodec
     {
         /// <summary>
         /// The codec field type
@@ -34,31 +34,29 @@ namespace Orleans.Serialization.Codecs
         /// <returns>The value.</returns>
         public static IPEndPoint ReadValue<TInput>(ref Buffers.Reader<TInput> reader, Field field)
         {
-            if (field.WireType == WireType.Reference)
+            if (field.IsReference)
             {
-                return (IPEndPoint)ReferenceCodec.ReadReference(ref reader, field, CodecFieldType);
+                return ReferenceCodec.ReadReference<IPEndPoint, TInput>(ref reader, field);
             }
+
+            field.EnsureWireTypeTagDelimited();
 
             var referencePlaceholder = ReferenceCodec.CreateRecordPlaceholder(reader.Session);
             Field header = default;
             var port = 0;
 
-            var id = OrleansGeneratedCodeHelper.ReadHeader(ref reader, ref header, 0);
-            if (id != 0) throw new RequiredFieldMissingException("Serialized IPEndPoint is missing its address field.");
+            reader.ReadFieldHeader(ref header);
+            if (!header.HasFieldId || header.FieldIdDelta != 0) throw new RequiredFieldMissingException("Serialized IPEndPoint is missing its address field.");
             var address = IPAddressCodec.ReadValue(ref reader, header);
 
-            id = OrleansGeneratedCodeHelper.ReadHeader(ref reader, ref header, id);
-            if (id == 1)
+            reader.ReadFieldHeader(ref header);
+            if (header.HasFieldId && header.FieldIdDelta == 1)
             {
                 port = UInt16Codec.ReadValue(ref reader, header);
-                id = OrleansGeneratedCodeHelper.ReadHeaderExpectingEndBaseOrEndObject(ref reader, ref header, id);
+                reader.ReadFieldHeader(ref header);
             }
 
-            while (id >= 0)
-            {
-                reader.ConsumeUnknownField(header);
-                id = OrleansGeneratedCodeHelper.ReadHeaderExpectingEndBaseOrEndObject(ref reader, ref header, id);
-            }
+            reader.ConsumeEndBaseOrEndObject(ref header);
 
             var result = new IPEndPoint(address, port);
             ReferenceCodec.RecordObject(reader.Session, result, referencePlaceholder);
@@ -75,7 +73,7 @@ namespace Orleans.Serialization.Codecs
         /// <param name="value">The value.</param>
         public static void WriteField<TBufferWriter>(ref Buffers.Writer<TBufferWriter> writer, uint fieldIdDelta, Type expectedType, IPEndPoint value) where TBufferWriter : IBufferWriter<byte>
         {
-            if (ReferenceCodec.TryWriteReferenceField(ref writer, fieldIdDelta, expectedType, value))
+            if (ReferenceCodec.TryWriteReferenceField(ref writer, fieldIdDelta, expectedType, CodecFieldType, value))
             {
                 return;
             }
@@ -87,23 +85,6 @@ namespace Orleans.Serialization.Codecs
         }
     }
 
-    /// <summary>
-    /// Copier for <see cref="IPEndPoint"/>.
-    /// </summary>
     [RegisterCopier]
-    public sealed class IPEndPointCopier : IDeepCopier<IPEndPoint>
-    {
-        /// <inheritdoc/>
-        public IPEndPoint DeepCopy(IPEndPoint input, CopyContext _) => input;
-    }
-
-    /// <summary>
-    /// Copier for <see cref="EndPoint"/>.
-    /// </summary>
-    [RegisterCopier]
-    public sealed class EndPointCopier : IDeepCopier<EndPoint>, IDerivedTypeCopier
-    {
-        /// <inheritdoc/>
-        public EndPoint DeepCopy(EndPoint input, CopyContext _) => input;
-    }
+    internal sealed class EndPointCopier : ShallowCopier<EndPoint>, IDerivedTypeCopier { }
 }

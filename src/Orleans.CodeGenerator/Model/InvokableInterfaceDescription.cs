@@ -3,8 +3,8 @@ using Microsoft.CodeAnalysis;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using Orleans.CodeGenerator.Diagnostics;
 using System.Linq;
-using System.Runtime.CompilerServices;
 
 namespace Orleans.CodeGenerator
 {
@@ -69,14 +69,14 @@ namespace Orleans.CodeGenerator
 
         private List<MethodDescription> GetMethods(INamedTypeSymbol symbol)
         {
-#pragma warning disable RS1024 // Compare symbols correctly
+#pragma warning disable RS1024 // Symbols should be compared for equality
             var methods = new Dictionary<IMethodSymbol, bool>(MethodSignatureComparer.Default);
-#pragma warning restore RS1024 // Compare symbols correctly
+#pragma warning restore RS1024 // Symbols should be compared for equality
             foreach (var iface in GetAllInterfaces(symbol))
             {
                 foreach (var method in iface.GetDeclaredInstanceMembers<IMethodSymbol>())
                 {
-                    if (methods.TryGetValue(method, out var description))
+                    if (methods.TryGetValue(method, out _))
                     {
                         methods[method] = true;
                         continue;
@@ -86,19 +86,16 @@ namespace Orleans.CodeGenerator
                 }
             }
 
-            var idCounter = 1;
             var res = new List<MethodDescription>();
-            foreach (var pair in methods.OrderBy(kv => kv.Key, MethodSignatureComparer.Default))
+            foreach (var pair in methods)
             {
                 var method = pair.Key;
-                var id = CodeGenerator.GetId(method) ?? idCounter;
-                if (id >= idCounter)
-                {
-                    idCounter = id + 1;
-                }
-
-                res.Add(new(this, method, id.ToString(CultureInfo.InvariantCulture), hasCollision: pair.Value));
+                var methodId = CodeGenerator.GetId(method)?.ToString(CultureInfo.InvariantCulture)
+                    ?? CodeGenerator.GetAlias(method)
+                    ?? CodeGenerator.CreateHashedMethodId(method);
+                res.Add(new(this, method, methodId, hasCollision: pair.Value));
             }
+
             return res;
 
             IEnumerable<INamedTypeSymbol> GetAllInterfaces(INamedTypeSymbol s)
@@ -109,6 +106,7 @@ namespace Orleans.CodeGenerator
                 }
 
                 foreach (var i in s.AllInterfaces)
+
                 {
                     yield return i;
                 }
@@ -179,12 +177,14 @@ namespace Orleans.CodeGenerator
                 if (!found)
                 {
                     var notFoundMessage = $"Proxy base class {baseClass} does not contain a definition for ValueTask<T> InvokeAsync<T>(IInvokable)";
-                    if (complaint is { Length: > 0 })
+                    var locationMember = complaintMember ?? baseClass;
+                    var complaintMessage = complaint switch
                     {
-                        throw new InvalidOperationException($"{notFoundMessage}. Complaint: {complaint} for symbol: {complaintMember.ToDisplayString()}");
-                    }
-
-                    throw new InvalidOperationException(notFoundMessage);
+                        { Length: > 0 } => $"{notFoundMessage}. Complaint: {complaint} for symbol: {complaintMember.ToDisplayString()}",
+                        _ => notFoundMessage,
+                    };
+                    var diagnostic = IncorrectProxyBaseClassSpecificationDiagnostic.CreateDiagnostic(baseClass, locationMember.Locations.First(), complaintMessage);
+                    throw new OrleansGeneratorDiagnosticAnalysisException(diagnostic);
                 }
             }
             
@@ -236,12 +236,14 @@ namespace Orleans.CodeGenerator
                 if (!found)
                 {
                     var notFoundMessage = $"Proxy base class {baseClass} does not contain a definition for ValueTask InvokeAsync(IInvokable)";
-                    if (complaint is { Length: > 0 })
+                    var locationMember = complaintMember ?? baseClass;
+                    var complaintMessage = complaint switch
                     {
-                        throw new InvalidOperationException($"{notFoundMessage}. Complaint: {complaint} for symbol: {complaintMember.ToDisplayString()}");
-                    }
-
-                    throw new InvalidOperationException(notFoundMessage);
+                        { Length: > 0 } => $"{notFoundMessage}. Complaint: {complaint} for symbol: {complaintMember.ToDisplayString()}",
+                        _ => notFoundMessage,
+                    };
+                    var diagnostic = IncorrectProxyBaseClassSpecificationDiagnostic.CreateDiagnostic(baseClass, locationMember.Locations.First(), complaintMessage);
+                    throw new OrleansGeneratorDiagnosticAnalysisException(diagnostic);
                 }
             }
         }

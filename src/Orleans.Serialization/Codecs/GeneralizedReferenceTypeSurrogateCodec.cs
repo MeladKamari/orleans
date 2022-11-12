@@ -13,7 +13,7 @@ namespace Orleans.Serialization.Codecs
     /// <typeparam name="TSurrogate">The surrogate type serialized in place of <typeparamref name="TField"/>.</typeparam>
     public abstract class GeneralizedReferenceTypeSurrogateCodec<TField, TSurrogate> : IFieldCodec<TField>, IDerivedTypeCodec where TField : class where TSurrogate : struct
     {
-        private static readonly Type CodecFieldType = typeof(TField);
+        private readonly Type CodecFieldType = typeof(TField);
         private readonly IValueSerializer<TSurrogate> _surrogateSerializer;
 
         /// <summary>
@@ -33,6 +33,8 @@ namespace Orleans.Serialization.Codecs
                 return ReferenceCodec.ReadReference<TField, TInput>(ref reader, field);
             }
 
+            field.EnsureWireTypeTagDelimited();
+
             var placeholderReferenceId = ReferenceCodec.CreateRecordPlaceholder(reader.Session);
             TSurrogate surrogate = default;
             _surrogateSerializer.Deserialize(ref reader, ref surrogate);
@@ -44,7 +46,7 @@ namespace Orleans.Serialization.Codecs
         /// <inheritdoc/>
         public void WriteField<TBufferWriter>(ref Writer<TBufferWriter> writer, uint fieldIdDelta, Type expectedType, TField value) where TBufferWriter : IBufferWriter<byte>
         {
-            if (ReferenceCodec.TryWriteReferenceField(ref writer, fieldIdDelta, expectedType, value))
+            if (ReferenceCodec.TryWriteReferenceField(ref writer, fieldIdDelta, expectedType, CodecFieldType, value))
             {
                 return;
             }

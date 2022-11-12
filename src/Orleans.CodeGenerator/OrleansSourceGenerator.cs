@@ -1,5 +1,6 @@
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Text;
+using Orleans.CodeGenerator.Diagnostics;
 using System;
 using System.Diagnostics;
 using System.Linq;
@@ -55,7 +56,8 @@ namespace Orleans.CodeGenerator
 
                 if (context.AnalyzerConfigOptions.GlobalOptions.TryGetValue("build_property.orleans_generatefieldids", out var generateFieldIds) && generateFieldIds is { Length: > 0 })
                 {
-                    options.GenerateFieldIds = bool.Parse(generateFieldIds);
+                    if (Enum.TryParse(generateFieldIds, out GenerateFieldIds fieldIdOption))
+                        options.GenerateFieldIds = fieldIdOption;
                 }
 
                 var codeGenerator = new CodeGenerator(context.Compilation, options);
@@ -75,18 +77,8 @@ namespace Orleans.CodeGenerator
                     context.ReportDiagnostic(analysisException.Diagnostic);
                     return true;
                 }
-                else if (exception is AggregateException aggregateException)
-                {
-                    var handled = true;
-                    var flattened = aggregateException.Flatten();
-                    foreach (var innerException in flattened.InnerExceptions)
-                    {
-                        handled &= HandleException(context, innerException);
-                    }
 
-                    return handled;
-                }
-
+                context.ReportDiagnostic(UnhandledCodeGenerationExceptionDiagnostic.CreateDiagnostic(exception));
                 return false;
             }
         }

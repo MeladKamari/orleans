@@ -117,7 +117,7 @@ namespace Orleans.CodeGenerator
 
                 dataMembers.Sort(FSharpUnionCasePropertyNameComparer.Default);
 
-                ushort id = 0;
+                uint id = 0;
                 foreach (var field in dataMembers)
                 {
                     yield return new FSharpUnionCaseFieldDescription(libraryTypes, field, id);
@@ -152,14 +152,14 @@ namespace Orleans.CodeGenerator
                 private readonly LibraryTypes _libraryTypes;
                 private readonly IPropertySymbol _property;
 
-                public FSharpUnionCaseFieldDescription(LibraryTypes libraryTypes, IPropertySymbol property, ushort ordinal)
+                public FSharpUnionCaseFieldDescription(LibraryTypes libraryTypes, IPropertySymbol property, uint ordinal)
                 {
                     _libraryTypes = libraryTypes;
                     FieldId = ordinal;
                     _property = property;
                 }
 
-                public ushort FieldId { get; }
+                public uint FieldId { get; }
 
                 public bool IsShallowCopyable => _libraryTypes.IsShallowCopyable(Type) || _property.HasAnyAttribute(_libraryTypes.ImmutableAttributes);
 
@@ -227,35 +227,10 @@ namespace Orleans.CodeGenerator
                             .AddArgumentListArguments(instanceArg, Argument(value));
                 }
 
-                public GetterFieldDescription GetGetterFieldDescription() => null;
+                public FieldAccessorDescription GetGetterFieldDescription() => null;
 
-                public SetterFieldDescription GetSetterFieldDescription()
-                {
-                    TypeSyntax fieldType;
-                    if (ContainingType != null && ContainingType.IsValueType)
-                    {
-                        fieldType = _libraryTypes.ValueTypeSetter_2.ToTypeSyntax(GetTypeSyntax(ContainingType), TypeSyntax);
-                    }
-                    else
-                    {
-                        fieldType = _libraryTypes.Action_2.ToTypeSyntax(GetTypeSyntax(ContainingType), TypeSyntax);
-                    }
-
-                    // Generate syntax to initialize the field in the constructor
-                    var fieldAccessorUtility = AliasQualifiedName("global", IdentifierName("Orleans.Serialization")).Member("Utilities").Member("FieldAccessor");
-                    var fieldInfo = SerializableMember.GetGetFieldInfoExpression(ContainingType, FieldName);
-                    var isContainedByValueType = ContainingType != null && ContainingType.IsValueType;
-                    var accessorMethod = isContainedByValueType ? "GetValueSetter" : "GetReferenceSetter";
-                    var accessorInvoke = CastExpression(
-                        fieldType,
-                        InvocationExpression(fieldAccessorUtility.Member(accessorMethod))
-                            .AddArgumentListArguments(Argument(fieldInfo)));
-
-                    var initializationSyntax = ExpressionStatement(
-                        AssignmentExpression(SyntaxKind.SimpleAssignmentExpression, IdentifierName(SetterFieldName), accessorInvoke));
-
-                    return new SetterFieldDescription(fieldType, SetterFieldName, initializationSyntax);
-                }
+                public FieldAccessorDescription GetSetterFieldDescription()
+                    => SerializableMember.GetFieldAccessor(ContainingType, TypeSyntax, FieldName, SetterFieldName, _libraryTypes, true);
             }
         }
 
@@ -267,7 +242,7 @@ namespace Orleans.CodeGenerator
 
             private static IEnumerable<IMemberDescription> GetRecordDataMembers(LibraryTypes libraryTypes, INamedTypeSymbol symbol)
             {
-                List<(IPropertySymbol, ushort)> dataMembers = new();
+                List<(IPropertySymbol, uint)> dataMembers = new();
                 foreach (var property in symbol.GetDeclaredInstanceMembers<IPropertySymbol>())
                 {
                     var id = CodeGenerator.GetId(libraryTypes, property);
@@ -290,14 +265,14 @@ namespace Orleans.CodeGenerator
                 private readonly LibraryTypes _libraryTypes;
                 private readonly IPropertySymbol _property;
 
-                public FSharpRecordPropertyDescription(LibraryTypes libraryTypes, IPropertySymbol property, ushort ordinal)
+                public FSharpRecordPropertyDescription(LibraryTypes libraryTypes, IPropertySymbol property, uint ordinal)
                 {
                     _libraryTypes = libraryTypes;
                     FieldId = ordinal;
                     _property = property;
                 }
 
-                public ushort FieldId { get; }
+                public uint FieldId { get; }
 
                 public bool IsShallowCopyable => _libraryTypes.IsShallowCopyable(Type) || _property.HasAnyAttribute(_libraryTypes.ImmutableAttributes);
 
@@ -365,35 +340,10 @@ namespace Orleans.CodeGenerator
                             .AddArgumentListArguments(instanceArg, Argument(value));
                 }
 
-                public GetterFieldDescription GetGetterFieldDescription() => null;
+                public FieldAccessorDescription GetGetterFieldDescription() => null;
 
-                public SetterFieldDescription GetSetterFieldDescription()
-                {
-                    TypeSyntax fieldType;
-                    if (ContainingType != null && ContainingType.IsValueType)
-                    {
-                        fieldType = _libraryTypes.ValueTypeSetter_2.ToTypeSyntax(GetTypeSyntax(ContainingType), TypeSyntax);
-                    }
-                    else
-                    {
-                        fieldType = _libraryTypes.Action_2.ToTypeSyntax(GetTypeSyntax(ContainingType), TypeSyntax);
-                    }
-
-                    // Generate syntax to initialize the field in the constructor
-                    var fieldAccessorUtility = AliasQualifiedName("global", IdentifierName("Orleans.Serialization")).Member("Utilities").Member("FieldAccessor");
-                    var fieldInfo = SerializableMember.GetGetFieldInfoExpression(ContainingType, FieldName);
-                    var isContainedByValueType = ContainingType != null && ContainingType.IsValueType;
-                    var accessorMethod = isContainedByValueType ? "GetValueSetter" : "GetReferenceSetter";
-                    var accessorInvoke = CastExpression(
-                        fieldType,
-                        InvocationExpression(fieldAccessorUtility.Member(accessorMethod))
-                            .AddArgumentListArguments(Argument(fieldInfo)));
-
-                    var initializationSyntax = ExpressionStatement(
-                        AssignmentExpression(SyntaxKind.SimpleAssignmentExpression, IdentifierName(SetterFieldName), accessorInvoke));
-
-                    return new SetterFieldDescription(fieldType, SetterFieldName, initializationSyntax);
-                }
+                public FieldAccessorDescription GetSetterFieldDescription()
+                    => SerializableMember.GetFieldAccessor(ContainingType, TypeSyntax, FieldName, SetterFieldName, _libraryTypes, true);
             }
         }
     }

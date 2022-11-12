@@ -15,7 +15,7 @@ namespace Orleans.CodeGenerator
     /// </summary>
     internal static class InvokableGenerator
     {
-        public static (ClassDeclarationSyntax, GeneratedInvokerDescription) Generate(
+        public static (ClassDeclarationSyntax Syntax, GeneratedInvokerDescription InvokerDescription) Generate(
             LibraryTypes libraryTypes,
             InvokableInterfaceDescription interfaceDescription,
             MethodDescription method)
@@ -24,7 +24,7 @@ namespace Orleans.CodeGenerator
             INamedTypeSymbol baseClassType = GetBaseClassType(method);
             var fieldDescriptions = GetFieldDescriptions(method, interfaceDescription);
             var fields = GetFieldDeclarations(method, fieldDescriptions, libraryTypes);
-            var (ctor, ctorArgs) = GenerateConstructor(libraryTypes, generatedClassName, method, fieldDescriptions, baseClassType);
+            var (ctor, ctorArgs) = GenerateConstructor(libraryTypes, generatedClassName, method, baseClassType);
 
             Accessibility accessibility = GetAccessibility(interfaceDescription);
 
@@ -35,26 +35,30 @@ namespace Orleans.CodeGenerator
                 Accessibility.Public => SyntaxKind.PublicKeyword,
                 _ => SyntaxKind.InternalKeyword,
             };
+            var compoundTypeAliasArgs = GetCompoundTypeAliasAttributeArguments(method);
             var classDeclaration = ClassDeclaration(generatedClassName)
                 .AddBaseListTypes(SimpleBaseType(baseClassType.ToTypeSyntax(method.TypeParameterSubstitutions)))
-                .AddModifiers(Token(accessibilityKind), Token(SyntaxKind.SealedKeyword), Token(SyntaxKind.PartialKeyword))
+                .AddModifiers(Token(accessibilityKind), Token(SyntaxKind.SealedKeyword))
                 .AddAttributeLists(
-                    AttributeList(SingletonSeparatedList(CodeGenerator.GetGeneratedCodeAttributeSyntax())))
-                .AddMembers(fields)
-                .AddMembers(ctor);
+                    AttributeList(SingletonSeparatedList(CodeGenerator.GetGeneratedCodeAttributeSyntax())),
+                    AttributeList(SingletonSeparatedList(GetCompoundTypeAliasAttribute(libraryTypes, compoundTypeAliasArgs))))
+                .AddMembers(fields);
+
+            if (ctor != null)
+                classDeclaration = classDeclaration.AddMembers(ctor);
 
             classDeclaration = AddOptionalMembers(classDeclaration,
-                    GenerateGetArgumentCount(libraryTypes, method),
+                    GenerateGetArgumentCount(method),
                     GenerateGetMethodName(libraryTypes, method),
                     GenerateGetInterfaceName(libraryTypes, method),
                     GenerateGetActivityName(libraryTypes, method),
                     GenerateGetInterfaceType(libraryTypes, method),
                     GenerateGetMethod(libraryTypes),
                     GenerateSetTargetMethod(libraryTypes, interfaceDescription, targetField),
-                    GenerateGetTargetMethod(libraryTypes, targetField),
-                    GenerateDisposeMethod(libraryTypes, method, fieldDescriptions, baseClassType),
-                    GenerateGetArgumentMethod(libraryTypes, method, fieldDescriptions),
-                    GenerateSetArgumentMethod(libraryTypes, method, fieldDescriptions),
+                    GenerateGetTargetMethod(targetField),
+                    GenerateDisposeMethod(fieldDescriptions, baseClassType),
+                    GenerateGetArgumentMethod(method, fieldDescriptions),
+                    GenerateSetArgumentMethod(method, fieldDescriptions),
                     GenerateInvokeInnerMethod(libraryTypes, method, fieldDescriptions, targetField));
 
             var typeParametersWithNames = method.AllTypeParameters;
@@ -73,6 +77,9 @@ namespace Orleans.CodeGenerator
                 }
             }
 
+            while (baseClassType.HasAttribute(libraryTypes.SerializerTransparentAttribute))
+                baseClassType = baseClassType.BaseType;
+
             var invokerDescription = new GeneratedInvokerDescription(
                 interfaceDescription,
                 method,
@@ -81,7 +88,8 @@ namespace Orleans.CodeGenerator
                 fieldDescriptions.OfType<IMemberDescription>().ToList(),
                 serializationHooks,
                 baseClassType,
-                ctorArgs);
+                ctorArgs,
+                compoundTypeAliasArgs);
             return (classDeclaration, invokerDescription);
 
             static Accessibility GetAccessibility(InvokableInterfaceDescription interfaceDescription)
@@ -105,14 +113,44 @@ namespace Orleans.CodeGenerator
         private static ClassDeclarationSyntax AddOptionalMembers(ClassDeclarationSyntax decl, params MemberDeclarationSyntax[] items)
             => decl.WithMembers(decl.Members.AddRange(items.Where(i => i != null)));
 
+        internal static AttributeSyntax GetCompoundTypeAliasAttribute(LibraryTypes libraryTypes, CompoundTypeAliasComponent[] argValues)
+        {
+            var args = new AttributeArgumentSyntax[argValues.Length];
+            for (var i = 0; i < argValues.Length; i++)
+            {
+                ExpressionSyntax value;
+                value = argValues[i].Value switch
+                {
+                    string stringValue => LiteralExpression(SyntaxKind.StringLiteralExpression, Literal(stringValue)),
+                    ITypeSymbol typeValue => TypeOfExpression(typeValue.ToOpenTypeSyntax()),
+                    _ => throw new InvalidOperationException($"Unsupported value")
+                };
+
+                args[i] = AttributeArgument(value);
+            }
+
+            return Attribute(libraryTypes.CompoundTypeAliasAttribute.ToNameSyntax()).AddArgumentListArguments(args);
+        }
+
+        internal static CompoundTypeAliasComponent[] GetCompoundTypeAliasAttributeArguments(MethodDescription methodDescription)
+        {
+            return new CompoundTypeAliasComponent[4]
+            {
+                    new CompoundTypeAliasComponent("inv"),
+                    new CompoundTypeAliasComponent(methodDescription.ContainingInterface.ProxyBaseType),
+                    new CompoundTypeAliasComponent(methodDescription.ContainingInterface.InterfaceType),
+                    new CompoundTypeAliasComponent(methodDescription.MethodId)
+            };
+        }
+
         private static INamedTypeSymbol GetBaseClassType(MethodDescription method)
         {
             var methodReturnType = method.Method.ReturnType;
             if (methodReturnType is not INamedTypeSymbol namedMethodReturnType)
             {
-                var diagnostic = InvalidGrainMethodReturnTypeDiagnostic.CreateDiagnostic(method);
-                throw new OrleansGeneratorDiagnosticAnalysisException(diagnostic);
+                throw new OrleansGeneratorDiagnosticAnalysisException(InvalidRpcMethodReturnTypeDiagnostic.CreateDiagnostic(method));
             }
+
             if (method.InvokableBaseTypes.TryGetValue(namedMethodReturnType, out var baseClassType))
             {
                 return baseClassType;
@@ -126,8 +164,8 @@ namespace Orleans.CodeGenerator
                     return baseClassType.ConstructedFrom.Construct(namedMethodReturnType.TypeArguments.ToArray());
                 }
             }
-            
-            throw new InvalidOperationException($"Unsupported return type {methodReturnType} for method {method.Method.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)}");
+
+            throw new OrleansGeneratorDiagnosticAnalysisException(InvalidRpcMethodReturnTypeDiagnostic.CreateDiagnostic(method));
         }
 
         private static MemberDeclarationSyntax GenerateSetTargetMethod(
@@ -153,16 +191,16 @@ namespace Orleans.CodeGenerator
                     SyntaxKind.SimpleAssignmentExpression,
                     IdentifierName(targetField.FieldName),
                     getTarget);
-            return MethodDeclaration(libraryTypes.Void.ToTypeSyntax(), "SetTarget")
+            return MethodDeclaration(PredefinedType(Token(SyntaxKind.VoidKeyword)), "SetTarget")
                 .WithParameterList(ParameterList(SingletonSeparatedList(Parameter(holderParameter).WithType(libraryTypes.ITargetHolder.ToTypeSyntax()))))
                 .WithExpressionBody(ArrowExpressionClause(body))
                 .WithSemicolonToken(Token(SyntaxKind.SemicolonToken))
                 .WithModifiers(TokenList(Token(SyntaxKind.PublicKeyword), Token(SyntaxKind.OverrideKeyword)));
         }
 
-        private static MemberDeclarationSyntax GenerateGetTargetMethod(LibraryTypes libraryTypes, TargetFieldDescription targetField)
+        private static MemberDeclarationSyntax GenerateGetTargetMethod(TargetFieldDescription targetField)
         {
-            return MethodDeclaration(libraryTypes.Object.ToTypeSyntax(), "GetTarget")
+            return MethodDeclaration(PredefinedType(Token(SyntaxKind.ObjectKeyword)), "GetTarget")
                 .WithParameterList(ParameterList())
                 .WithExpressionBody(ArrowExpressionClause(IdentifierName(targetField.FieldName)))
                 .WithSemicolonToken(Token(SyntaxKind.SemicolonToken))
@@ -170,7 +208,6 @@ namespace Orleans.CodeGenerator
         }
 
         private static MemberDeclarationSyntax GenerateGetArgumentMethod(
-            LibraryTypes libraryTypes,
             MethodDescription methodDescription,
             List<InvokerFieldDescripton> fields)
         {
@@ -222,17 +259,16 @@ namespace Orleans.CodeGenerator
                                                         Math.Max(0, methodDescription.Method.Parameters.Length - 1))))
                                         })))))));
             var body = SwitchStatement(index, new SyntaxList<SwitchSectionSyntax>(cases));
-            return MethodDeclaration(libraryTypes.Object.ToTypeSyntax(), "GetArgument")
+            return MethodDeclaration(PredefinedType(Token(SyntaxKind.ObjectKeyword)), "GetArgument")
                 .WithParameterList(
                     ParameterList(
                         SingletonSeparatedList(
-                            Parameter(Identifier("index")).WithType(libraryTypes.Int32.ToTypeSyntax()))))
+                            Parameter(Identifier("index")).WithType(PredefinedType(Token(SyntaxKind.IntKeyword))))))
                 .WithBody(Block(body))
                 .WithModifiers(TokenList(Token(SyntaxKind.PublicKeyword), Token(SyntaxKind.OverrideKeyword)));
         }
 
         private static MemberDeclarationSyntax GenerateSetArgumentMethod(
-            LibraryTypes libraryTypes,
             MethodDescription methodDescription,
             List<InvokerFieldDescripton> fields)
         {
@@ -296,14 +332,14 @@ namespace Orleans.CodeGenerator
                             ReturnStatement()
                         })));
             var body = SwitchStatement(index, new SyntaxList<SwitchSectionSyntax>(cases));
-            return MethodDeclaration(libraryTypes.Void.ToTypeSyntax(), "SetArgument")
+            return MethodDeclaration(PredefinedType(Token(SyntaxKind.VoidKeyword)), "SetArgument")
                 .WithParameterList(
                     ParameterList(
                         SeparatedList(
                             new[]
                             {
-                                Parameter(Identifier("index")).WithType(libraryTypes.Int32.ToTypeSyntax()),
-                                Parameter(Identifier("value")).WithType(libraryTypes.Object.ToTypeSyntax())
+                                Parameter(Identifier("index")).WithType(PredefinedType(Token(SyntaxKind.IntKeyword))),
+                                Parameter(Identifier("value")).WithType(PredefinedType(Token(SyntaxKind.ObjectKeyword)))
                             }
                         )))
                 .WithBody(Block(body))
@@ -322,13 +358,13 @@ namespace Orleans.CodeGenerator
             var args = SeparatedList(
                 fields.OfType<MethodParameterFieldDescription>()
                     .OrderBy(p => p.ParameterOrdinal)
-                    .Select(p => Argument(ThisExpression().Member(p.FieldName))));
+                    .Select(p => Argument(IdentifierName(p.FieldName))));
             ExpressionSyntax methodCall;
             if (method.MethodTypeParameters.Count > 0)
             {
                 methodCall = MemberAccessExpression(
                     SyntaxKind.SimpleMemberAccessExpression,
-                    ThisExpression().Member(target.FieldName),
+                    IdentifierName(target.FieldName),
                     GenericName(
                         Identifier(method.Method.Name),
                         TypeArgumentList(
@@ -337,7 +373,7 @@ namespace Orleans.CodeGenerator
             }
             else
             {
-                methodCall = ThisExpression().Member(target.FieldName).Member(method.Method.Name);
+                methodCall = IdentifierName(target.FieldName).Member(method.Method.Name);
             }
 
             return MethodDeclaration(method.Method.ReturnType.ToTypeSyntax(method.TypeParameterSubstitutions), "InvokeInner")
@@ -348,8 +384,6 @@ namespace Orleans.CodeGenerator
         }
 
         private static MemberDeclarationSyntax GenerateDisposeMethod(
-            LibraryTypes libraryTypes,
-            MethodDescription methodDescription,
             List<InvokerFieldDescripton> fields,
             INamedTypeSymbol baseClassType)
         {
@@ -362,27 +396,27 @@ namespace Orleans.CodeGenerator
                         ExpressionStatement(
                             AssignmentExpression(
                                 SyntaxKind.SimpleAssignmentExpression,
-                                ThisExpression().Member(field.FieldName),
-                                DefaultExpression(field.FieldType.ToTypeSyntax(methodDescription.TypeParameterSubstitutions)))));
+                                IdentifierName(field.FieldName),
+                                LiteralExpression(SyntaxKind.DefaultLiteralExpression))));
                 }
             }
 
             // C# base.Dispose();
             if (baseClassType is { }
-                && baseClassType.AllInterfaces.Contains(libraryTypes.IDisposable)
+                && baseClassType.AllInterfaces.Any(i => i.SpecialType == SpecialType.System_IDisposable)
                 && baseClassType.GetAllMembers<IMethodSymbol>("Dispose").FirstOrDefault(m => !m.IsAbstract && m.DeclaredAccessibility != Accessibility.Private) is { })
             {
                 body.Add(ExpressionStatement(InvocationExpression(BaseExpression().Member("Dispose")).WithArgumentList(ArgumentList())));
             }
 
-            return MethodDeclaration(libraryTypes.Void.ToTypeSyntax(), "Dispose")
+            return MethodDeclaration(PredefinedType(Token(SyntaxKind.VoidKeyword)), "Dispose")
                 .WithModifiers(TokenList(Token(SyntaxKind.PublicKeyword), Token(SyntaxKind.OverrideKeyword)))
                 .WithBody(Block(body));
         }
 
-        private static MemberDeclarationSyntax GenerateGetArgumentCount(LibraryTypes libraryTypes, MethodDescription methodDescription)
+        private static MemberDeclarationSyntax GenerateGetArgumentCount(MethodDescription methodDescription)
             => methodDescription.Method.Parameters.Length is var count and not 0 ?
-            MethodDeclaration(libraryTypes.Int32.ToTypeSyntax(), "GetArgumentCount")
+            MethodDeclaration(PredefinedType(Token(SyntaxKind.IntKeyword)), "GetArgumentCount")
                 .WithExpressionBody(ArrowExpressionClause(LiteralExpression(SyntaxKind.NumericLiteralExpression, Literal(count))))
                 .WithModifiers(TokenList(Token(SyntaxKind.PublicKeyword), Token(SyntaxKind.OverrideKeyword)))
                 .WithSemicolonToken(Token(SyntaxKind.SemicolonToken)) : null;
@@ -454,7 +488,7 @@ namespace Orleans.CodeGenerator
         {
             var genericArity = method.AllTypeParameters.Count;
             var typeArgs = genericArity > 0 ? "_" + genericArity : string.Empty;
-            return $"Invokable_{interfaceDescription.Name}_{interfaceDescription.ProxyBaseType.Name}_{method.Name}{typeArgs}";
+            return $"Invokable_{interfaceDescription.Name}_{interfaceDescription.ProxyBaseType.Name}_{method.MethodId}{typeArgs}";
         }
 
         private static MemberDeclarationSyntax[] GetFieldDeclarations(
@@ -503,28 +537,6 @@ namespace Orleans.CodeGenerator
                         break;
                 }
 
-                if (!description.IsSerializable)
-                {
-                    if (description.IsInstanceField)
-                        field = field.AddAttributeLists(
-                                AttributeList()
-                                    .AddAttributes(Attribute(libraryTypes.NonSerializedAttribute.ToNameSyntax())));
-                }
-                else if (description is MethodParameterFieldDescription parameter)
-                {
-                    field = field.AddAttributeLists(
-                        AttributeList()
-                            .AddAttributes(
-                                Attribute(
-                                    libraryTypes.IdAttributeTypes[0].ToNameSyntax(),
-                                    AttributeArgumentList()
-                                        .AddArguments(
-                                            AttributeArgument(
-                                                LiteralExpression(
-                                                    SyntaxKind.NumericLiteralExpression,
-                                                    Literal(parameter.FieldId)))))));
-                }
-
                 return field;
             }
         }
@@ -541,7 +553,6 @@ namespace Orleans.CodeGenerator
             LibraryTypes libraryTypes,
             string simpleClassName,
             MethodDescription method,
-            List<InvokerFieldDescripton> fieldDescriptions,
             INamedTypeSymbol baseClassType)
         {
             var parameters = new List<ParameterSyntax>();
@@ -577,8 +588,11 @@ namespace Orleans.CodeGenerator
             foreach (var (methodName, methodArgument) in method.CustomInitializerMethods)
             {
                 var argumentExpression = methodArgument.ToExpression();
-                body.Add(ExpressionStatement(InvocationExpression(ThisExpression().Member(methodName), ArgumentList(SeparatedList(new[] { Argument(argumentExpression) })))));
+                body.Add(ExpressionStatement(InvocationExpression(IdentifierName(methodName), ArgumentList(SeparatedList(new[] { Argument(argumentExpression) })))));
             }
+
+            if (body.Count == 0 && parameters.Count == 0)
+                return default;
 
             var constructorDeclaration = ConstructorDeclaration(simpleClassName)
                 .AddModifiers(Token(SyntaxKind.PublicKeyword))
@@ -587,7 +601,6 @@ namespace Orleans.CodeGenerator
                     ConstructorInitializer(
                         SyntaxKind.BaseConstructorInitializer,
                         ArgumentList(SeparatedList(baseConstructorArguments))))
-                .AddAttributeLists(AttributeList(SingletonSeparatedList(Attribute(libraryTypes.GeneratedActivatorConstructorAttribute.ToNameSyntax()))))
                 .AddBodyStatements(body.ToArray());
 
             return (constructorDeclaration, constructorArgumentTypes);
@@ -599,7 +612,7 @@ namespace Orleans.CodeGenerator
         {
             var fields = new List<InvokerFieldDescripton>();
 
-            ushort fieldId = 0;
+            uint fieldId = 0;
             foreach (var parameter in method.Method.Parameters)
             {
                 fields.Add(new MethodParameterFieldDescription(method, parameter, $"arg{fieldId}", fieldId));
@@ -636,7 +649,7 @@ namespace Orleans.CodeGenerator
 
         internal sealed class MethodParameterFieldDescription : InvokerFieldDescripton, IMemberDescription
         {
-            public MethodParameterFieldDescription(MethodDescription method, IParameterSymbol parameter, string fieldName, ushort fieldId)
+            public MethodParameterFieldDescription(MethodDescription method, IParameterSymbol parameter, string fieldName, uint fieldId)
                 : base(parameter.Type, fieldName)
             {
                 Method = method;
@@ -659,7 +672,7 @@ namespace Orleans.CodeGenerator
             public ISymbol Symbol { get; }
             public MethodDescription Method { get; }
             public int ParameterOrdinal => Parameter.Ordinal;
-            public ushort FieldId { get; }
+            public uint FieldId { get; }
             public ISymbol Member => Parameter;
             public ITypeSymbol Type => FieldType;
             public INamedTypeSymbol ContainingType => Parameter.ContainingType;

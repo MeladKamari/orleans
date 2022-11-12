@@ -2,11 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using Orleans.Serialization.Invocation;
 
 namespace Orleans.Runtime
 {
-    [WellKnownId(101)]
+    [Id(101)]
     internal sealed class Message : ISpanFormattable
     {
         public const int LENGTH_HEADER_SIZE = 8;
@@ -22,7 +21,6 @@ namespace Orleans.Runtime
         public PackedHeaders _headers;
         public CorrelationId _id;
 
-        public Guid _callChainId;
         public Dictionary<string, object> _requestContextData;
 
         public SiloAddress _targetSilo;
@@ -121,7 +119,7 @@ namespace Orleans.Runtime
         public int ForwardCount
         {
             get => _headers.ForwardCount;
-            set => _headers.ForwardCount = (byte)value;
+            set => _headers.ForwardCount = value;
         }
 
         public SiloAddress TargetSilo
@@ -223,16 +221,6 @@ namespace Orleans.Runtime
             {
                 _requestContextData = value;
                 _headers.SetFlag(MessageFlags.HasRequestContextData, value is not null);
-            }
-        }
-
-        public Guid CallChainId
-        {
-            get => _callChainId;
-            set
-            {
-                _callChainId = value;
-                _headers.SetFlag(MessageFlags.HasCallChainId, value != Guid.Empty);
             }
         }
 
@@ -347,22 +335,22 @@ grow:
 
             HasRequestContextData = 1 << 4,
             HasInterfaceVersion = 1 << 5,
-            HasCallChainId = 1 << 6,
-            HasInterfaceType = 1 << 7,
-            HasCacheInvalidationHeader = 1 << 8,
-            HasTimeToLive = 1 << 9,
+            HasInterfaceType = 1 << 6,
+            HasCacheInvalidationHeader = 1 << 7,
+            HasTimeToLive = 1 << 8,
 
             // The most significant bit is reserved, possibly for use to indicate more data follows.
             Reserved = 1 << 15,
         }
 
-        [StructLayout(LayoutKind.Explicit)]
         internal struct PackedHeaders
         {
             private const uint DirectionMask = 0x000F_0000;
             private const int DirectionShift = 16;
             private const uint ResponseTypeMask = 0x00F0_0000;
             private const int ResponseTypeShift = 20;
+            private const uint ForwardCountMask = 0xFF00_0000;
+            private const int ForwardCountShift = 24;
 
             public static implicit operator PackedHeaders(uint fields) => new() { _fields = fields };
             public static implicit operator uint(PackedHeaders value) => value._fields;
@@ -372,14 +360,13 @@ grow:
             // D: 4 bits for Direction
             // R: 4 bits for ResponseType
             // H: 8 bits for ForwardCount (hop count)
-            [FieldOffset(0)]
             private uint _fields;
 
-            [FieldOffset(0)]
-            private MessageFlags _flags;
-
-            [FieldOffset(3)]
-            public byte ForwardCount;
+            public int ForwardCount
+            {
+                get => (int)(_fields >> ForwardCountShift);
+                set => _fields = (_fields & ~ForwardCountMask) | (uint)value << ForwardCountShift;
+            }
 
             public Directions Direction
             {
@@ -393,12 +380,12 @@ grow:
                 set => _fields = (_fields & ~ResponseTypeMask) | (uint)value << ResponseTypeShift;
             }
 
-            public bool HasFlag(MessageFlags flag) => _flags.HasFlag(flag);
+            public bool HasFlag(MessageFlags flag) => (_fields & (uint)flag) != 0;
 
-            public void SetFlag(MessageFlags flag, bool value) => _flags = value switch
+            public void SetFlag(MessageFlags flag, bool value) => _fields = value switch
             {
-                true => _flags | flag,
-                _ => _flags & ~flag,
+                true => _fields | (uint)flag,
+                _ => _fields & ~(uint)flag,
             };
         }
     }

@@ -17,16 +17,18 @@ namespace Orleans.Serialization.UnitTests
     public class GeneratedSerializerTests : IDisposable
     {
         private readonly ServiceProvider _serviceProvider;
-        private readonly IFieldCodecProvider _codecProvider;
+        private readonly CodecProvider _codecProvider;
         private readonly SerializerSessionPool _sessionPool;
+        private readonly Serializer _serializer;
 
         public GeneratedSerializerTests()
         {
             _serviceProvider = new ServiceCollection()
                 .AddSerializer()
                 .BuildServiceProvider();
-            _codecProvider = _serviceProvider.GetRequiredService<IFieldCodecProvider>();
+            _codecProvider = _serviceProvider.GetRequiredService<CodecProvider>();
             _sessionPool = _serviceProvider.GetRequiredService<SerializerSessionPool>();
+            _serializer = _serviceProvider.GetRequiredService<Serializer>();
         }
 
         [Fact]
@@ -125,6 +127,29 @@ namespace Orleans.Serialization.UnitTests
 
             Assert.Equal(original.Age, result.Age);
             Assert.Equal(original.Name, result.Name);
+        }
+
+        /// <summary>
+        /// Tests that a record type can be serialized bitwise identically to a regular (non-record) class with the same layout.
+        /// </summary>
+        [Fact]
+        public void RecordSerializedAsRegularClass()
+        {
+            var original = new Person5(2, "harry") { FavouriteColor = "redborine", StarSign = "Aquaricorn" };
+
+            var result = RoundTripThroughCodec(original);
+
+            Assert.Equal(original.Age, result.Age);
+            Assert.Equal(original.Name, result.Name);
+            Assert.Equal(original.FavouriteColor, result.FavouriteColor);
+            Assert.Equal(original.StarSign, result.StarSign);
+
+            // Note that this only works because we are serializing each object using the "expected type" optimization and
+            // therefore omitting the concrete type names.
+            var originalAsArray = _serializer.SerializeToArray(original);
+            var classVersion = new Person5_Class { Age = 2,  Name = "harry", FavouriteColor = "redborine", StarSign = "Aquaricorn" };
+            var classAsArray = _serializer.SerializeToArray(classVersion);
+            Assert.Equal(originalAsArray, classAsArray);
         }
 
         [Fact]
@@ -332,6 +357,82 @@ namespace Orleans.Serialization.UnitTests
             Assert.Equal("bananas", result.StringProperty);
         }
 
+        [Fact]
+        public void ImmutableClassWithImplicitFieldIdsRoundTrip()
+        {
+            var original = new ClassWithImplicitFieldIds("apples", MyCustomEnum.One);
+            var result = RoundTripThroughCodec(original);
+
+            Assert.Equal(original.StringValue, result.StringValue);
+            Assert.Equal(original.EnumValue, result.EnumValue);
+        }
+
+        [Fact]
+        public void CopyImmutableAndSealedTypes()
+        {
+            DoTest<MyImmutableSub, MyImmutableBase>(new MyImmutableSub { BaseValue = 1, SubValue = 2 });
+            DoTest<MyMutableSub, MyImmutableBase>(new MyMutableSub { BaseValue = 1, SubValue = 2 });
+            DoTest<MySealedSub, MyMutableBase>(new MySealedSub { BaseValue = 1, SubValue = 2 });
+            DoTest<MySealedImmutableSub, MyMutableBase>(new MySealedImmutableSub { BaseValue = 1, SubValue = 2 });
+            DoTest<MyUnsealedImmutableSub, MyMutableBase>(new MyUnsealedImmutableSub { BaseValue = 1, SubValue = 2 });
+
+            void DoTest<T, TBase>(T original) where T : TBase, IMySub
+            {
+                var res1 = Copy(original);
+                Assert.Equal(original.BaseValue, res1.BaseValue);
+                Assert.Equal(original.SubValue, res1.SubValue);
+
+                var res2 = Assert.IsType<T>(Copy<object>(original));
+                Assert.Equal(original.BaseValue, res2.BaseValue);
+                Assert.Equal(original.SubValue, res2.SubValue);
+
+                var res3 = Assert.IsType<T>(Copy<TBase>(original));
+                Assert.Equal(original.BaseValue, res3.BaseValue);
+                Assert.Equal(original.SubValue, res3.SubValue);
+            }
+        }
+
+        [Fact]
+        public void TypeReferencesAreEncodedOnce()
+        {
+            var original = new object[] { new MyValue(1), new MyValue(2), new MyValue(3) };
+            var result = (object[])RoundTripThroughUntypedSerializer(original, out var formattedBitStream);
+
+            Assert.Equal(original, result);
+            Assert.Contains("SchemaType: Referenced RuntimeType: MyValue", formattedBitStream);
+        }
+
+        [Fact]
+        public void TypeCodecDoesNotUpdateTypeReferences()
+        {
+            var original = new ClassWithTypeFields { Type1 = typeof(MyValue), UntypedValue = new MyValue(42), Type2 = typeof(MyValue) };
+            var result = (ClassWithTypeFields)RoundTripThroughUntypedSerializer(original, out var formattedBitStream);
+
+            Assert.Equal(original.Type1, result.Type1);
+            Assert.Equal(original.UntypedValue, result.UntypedValue);
+            Assert.Equal(original.Type2, result.Type2);
+
+            Assert.Contains("[#4 LengthPrefixed Id: 1 SchemaType: Expected]", formattedBitStream); // Type1
+            Assert.Contains("[#5 TagDelimited Id: 2 SchemaType: Encoded RuntimeType: MyValue", formattedBitStream); // UntypedValue
+            Assert.Contains("[#7 Reference Id: 3 SchemaType: Expected", formattedBitStream); // Type2
+        }
+
+        [Fact]
+        public void TypeCodecConsumesTypeReferences()
+        {
+            var original = new ClassWithTypeFields { UntypedValue = new MyValue(42), Type2 = typeof(MyValue) };
+            var result = (ClassWithTypeFields)RoundTripThroughUntypedSerializer(original, out var formattedBitStream);
+
+            Assert.Equal(original.Type1, result.Type1);
+            Assert.Equal(original.UntypedValue, result.UntypedValue);
+            Assert.Equal(original.Type2, result.Type2);
+
+            Assert.Contains("[#2 Reference Id: 1 SchemaType: Expected Reference: 0]", formattedBitStream); // Type1
+            Assert.Contains("[#3 TagDelimited Id: 2 SchemaType: Encoded RuntimeType: MyValue", formattedBitStream); // UntypedValue
+            Assert.Contains("[#5 TagDelimited Id: 3 SchemaType: Expected]", formattedBitStream); // Type2
+            Assert.Contains("[#7 VarInt Id: 2 SchemaType: Expected] Value: 2", formattedBitStream); // type reference from Type2 field pointing to the encoded field type of UntypedValue
+        }
+
         public void Dispose() => _serviceProvider?.Dispose();
 
         private T RoundTripThroughCodec<T>(T original)
@@ -365,6 +466,12 @@ namespace Orleans.Serialization.UnitTests
             }
 
             return result;
+        }
+
+        private T Copy<T>(T original)
+        {
+            var copier = _serviceProvider.GetRequiredService<DeepCopier<T>>();
+            return copier.Copy(original);
         }
 
         private object RoundTripThroughUntypedSerializer(object original, out string formattedBitStream)

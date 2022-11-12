@@ -61,7 +61,7 @@ namespace Orleans.Analyzers {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to The member &quot;{0}&quot; is marked as {1} and therefore cannot be serialized..
+        ///   Looks up a localized string similar to The member &quot;{0}&quot; is marked as {1} and therefore cannot be serialized.
         /// </summary>
         internal static string AbstractOrStaticMembersCannotBeSerializedMessageFormat {
             get {
@@ -70,7 +70,7 @@ namespace Orleans.Analyzers {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to Members which are static or abstract cannot be serialized..
+        ///   Looks up a localized string similar to Members which are static or abstract cannot be serialized.
         /// </summary>
         internal static string AbstractOrStaticMembersCannotBeSerializedTitle {
             get {
@@ -79,7 +79,7 @@ namespace Orleans.Analyzers {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to Add the [GenerateSerializer] attribute..
+        ///   Looks up a localized string similar to Add the [GenerateSerializer] attribute to serializable types in your application.
         /// </summary>
         internal static string AddGenerateSerializerAttributeDescription {
             get {
@@ -88,7 +88,7 @@ namespace Orleans.Analyzers {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to Add the [GenerateSerializer] attribute..
+        ///   Looks up a localized string similar to The type &quot;{0}&quot; has the [Serializable] attribute but not the [GenerateSerializer] attribute.
         /// </summary>
         internal static string AddGenerateSerializerAttributeMessageFormat {
             get {
@@ -97,7 +97,7 @@ namespace Orleans.Analyzers {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to Add the [GenerateSerializer] attribute..
+        ///   Looks up a localized string similar to Add the [GenerateSerializer] attribute.
         /// </summary>
         internal static string AddGenerateSerializerAttributesTitle {
             get {
@@ -106,7 +106,7 @@ namespace Orleans.Analyzers {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to Add attributes to properties and fields to direct serializer generation..
+        ///   Looks up a localized string similar to Add attributes to properties and fields to direct serializer generation.
         /// </summary>
         internal static string AddSerializationAttributesDescription {
             get {
@@ -115,7 +115,7 @@ namespace Orleans.Analyzers {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to Add missing serialization attributes..
+        ///   Looks up a localized string similar to Add missing serialization attributes.
         /// </summary>
         internal static string AddSerializationAttributesMessageFormat {
             get {
@@ -124,11 +124,29 @@ namespace Orleans.Analyzers {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to Add missing serialization attributes..
+        ///   Looks up a localized string similar to Add missing serialization attributes.
         /// </summary>
         internal static string AddSerializationAttributesTitle {
             get {
                 return ResourceManager.GetString("AddSerializationAttributesTitle", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to A single type is not allowed to have multiple constructors annotated with the [OrleansConstructor] attribute.
+        /// </summary>
+        internal static string AtMostOneOrleansConstructorMessageFormat {
+            get {
+                return ResourceManager.GetString("AtMostOneOrleansConstructorMessageFormat", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to At most one constructor can be annotated with the [OrleansConstructor] attribute.
+        /// </summary>
+        internal static string AtMostOneOrleansConstructorTitle {
+            get {
+                return ResourceManager.GetString("AtMostOneOrleansConstructorTitle", resourceCulture);
             }
         }
     }

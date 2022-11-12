@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using Orleans.Serialization.Buffers;
 using Orleans.Serialization.Cloning;
@@ -14,10 +15,7 @@ namespace Orleans.Serialization.Codecs
     [RegisterSerializer]
     public sealed class QueueCodec<T> : IFieldCodec<Queue<T>>
     {
-        /// <summary>
-        /// The codec element type
-        /// </summary>
-        public static readonly Type CodecElementType = typeof(T);
+        private readonly Type CodecElementType = typeof(T);
         private readonly IFieldCodec<T> _fieldCodec;
 
         /// <summary>
@@ -30,7 +28,7 @@ namespace Orleans.Serialization.Codecs
         }
 
         /// <inheritdoc/>
-        void IFieldCodec<Queue<T>>.WriteField<TBufferWriter>(ref Writer<TBufferWriter> writer, uint fieldIdDelta, Type expectedType, Queue<T> value)
+        public void WriteField<TBufferWriter>(ref Writer<TBufferWriter> writer, uint fieldIdDelta, Type expectedType, Queue<T> value) where TBufferWriter : IBufferWriter<byte>
         {
             if (ReferenceCodec.TryWriteReferenceField(ref writer, fieldIdDelta, expectedType, value))
             {
@@ -39,35 +37,33 @@ namespace Orleans.Serialization.Codecs
 
             writer.WriteFieldHeader(fieldIdDelta, expectedType, value.GetType(), WireType.TagDelimited);
 
-            Int32Codec.WriteField(ref writer, 0, Int32Codec.CodecFieldType, value.Count);
-            uint innerFieldIdDelta = 1;
-            foreach (var element in value)
+            if (value.Count > 0)
             {
-                _fieldCodec.WriteField(ref writer, innerFieldIdDelta, CodecElementType, element);
-                innerFieldIdDelta = 0;
+                UInt32Codec.WriteField(ref writer, 0, UInt32Codec.CodecFieldType, (uint)value.Count);
+                uint innerFieldIdDelta = 1;
+                foreach (var element in value)
+                {
+                    _fieldCodec.WriteField(ref writer, innerFieldIdDelta, CodecElementType, element);
+                    innerFieldIdDelta = 0;
+                }
             }
 
             writer.WriteEndObject();
         }
 
         /// <inheritdoc/>
-        Queue<T> IFieldCodec<Queue<T>>.ReadValue<TInput>(ref Reader<TInput> reader, Field field)
+        public Queue<T> ReadValue<TInput>(ref Reader<TInput> reader, Field field)
         {
             if (field.WireType == WireType.Reference)
             {
                 return ReferenceCodec.ReadReference<Queue<T>, TInput>(ref reader, field);
             }
 
-            if (field.WireType != WireType.TagDelimited)
-            {
-                ThrowUnsupportedWireTypeException(field);
-            }
+            field.EnsureWireTypeTagDelimited();
 
             var placeholderReferenceId = ReferenceCodec.CreateRecordPlaceholder(reader.Session);
             Queue<T> result = null;
             uint fieldId = 0;
-            var length = 0;
-            var index = 0;
             while (true)
             {
                 var header = reader.ReadFieldHeader();
@@ -80,7 +76,7 @@ namespace Orleans.Serialization.Codecs
                 switch (fieldId)
                 {
                     case 0:
-                        length = Int32Codec.ReadValue(ref reader, header);
+                        var length = (int)UInt32Codec.ReadValue(ref reader, header);
                         result = new Queue<T>(length);
                         ReferenceCodec.RecordObject(reader.Session, result, placeholderReferenceId);
                         break;
@@ -90,12 +86,7 @@ namespace Orleans.Serialization.Codecs
                             ThrowLengthFieldMissing();
                         }
 
-                        if (index >= length)
-                        {
-                            ThrowIndexOutOfRangeException(length);
-                        }
                         result.Enqueue(_fieldCodec.ReadValue(ref reader, header));
-                        ++index;
                         break;
                     default:
                         reader.ConsumeUnknownField(header);
@@ -103,16 +94,16 @@ namespace Orleans.Serialization.Codecs
                 }
             }
 
+            if (result is null)
+            {
+                result = new();
+                ReferenceCodec.RecordObject(reader.Session, result, placeholderReferenceId);
+            }
+
             return result;
         }
 
-        private static void ThrowUnsupportedWireTypeException(Field field) => throw new UnsupportedWireTypeException(
-            $"Only a {nameof(WireType)} value of {WireType.TagDelimited} is supported for string fields. {field}");
-
-        private static void ThrowIndexOutOfRangeException(int length) => throw new IndexOutOfRangeException(
-            $"Encountered too many elements in array of type {typeof(Queue<T>)} with declared length {length}.");
-
-        private static void ThrowLengthFieldMissing() => throw new RequiredFieldMissingException("Serialized array is missing its length field.");
+        private static void ThrowLengthFieldMissing() => throw new RequiredFieldMissingException("Serialized queue is missing its length field.");
     }
 
     /// <summary>

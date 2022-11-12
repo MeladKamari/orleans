@@ -32,10 +32,7 @@ namespace Orleans.Serialization.Codecs
         public static DateTimeOffset ReadValue<TInput>(ref Reader<TInput> reader, Field field)
         {
             ReferenceCodec.MarkValueField(reader.Session);
-            if (field.WireType != WireType.TagDelimited)
-            {
-                ThrowUnsupportedWireTypeException(field);
-            }
+            field.EnsureWireTypeTagDelimited();
 
             uint fieldId = 0;
             TimeSpan offset = default;
@@ -65,18 +62,5 @@ namespace Orleans.Serialization.Codecs
 
             return new DateTimeOffset(dateTime, offset);
         }
-
-        private static void ThrowUnsupportedWireTypeException(Field field) => throw new UnsupportedWireTypeException(
-            $"Only a {nameof(WireType)} value of {WireType.TagDelimited} is supported for {nameof(DateTimeOffset)} fields. {field}");
-    }
-
-    /// <summary>
-    /// Copier for <see cref="DateTimeOffset"/>.
-    /// </summary>
-    [RegisterCopier]
-    public sealed class DateTimeOffsetCopier : IDeepCopier<DateTimeOffset>
-    {
-        /// <inheritdoc/>
-        public DateTimeOffset DeepCopy(DateTimeOffset input, CopyContext _) => input;
     }
 }

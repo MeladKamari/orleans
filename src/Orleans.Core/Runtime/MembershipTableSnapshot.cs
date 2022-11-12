@@ -4,7 +4,7 @@ using System.Text;
 
 namespace Orleans.Runtime
 {
-    [GenerateSerializer]
+    [GenerateSerializer, Immutable]
     internal sealed class MembershipTableSnapshot
     {
         public MembershipTableSnapshot(
@@ -70,10 +70,10 @@ namespace Orleans.Runtime
             return new MembershipTableSnapshot(snapshot.Version, entries.ToImmutable());
         }
 
-        [Id(1)]
+        [Id(0)]
         public MembershipVersion Version { get; }
         
-        [Id(2)]
+        [Id(1)]
         public ImmutableDictionary<SiloAddress, MembershipEntry> Entries { get; }
 
         public int ActiveNodeCount

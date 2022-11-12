@@ -2,11 +2,14 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Orleans.Configuration;
+using Orleans.Core.Internal;
 using Orleans.GrainDirectory;
 using Orleans.Internal;
 using Orleans.Runtime.Scheduler;
@@ -20,19 +23,18 @@ namespace Orleans.Runtime
     /// MUST lock this object for any concurrent access
     /// Consider: compartmentalize by usage, e.g., using separate interfaces for data for catalog, etc.
     /// </summary>
-    internal sealed class ActivationData : IGrainContext, ICollectibleGrainContext, IGrainExtensionBinder, IActivationWorkingSetMember, IGrainTimerRegistry, IGrainManagementExtension, IAsyncDisposable
+    internal sealed class ActivationData : IGrainContext, ICollectibleGrainContext, IGrainExtensionBinder, IActivationWorkingSetMember, IGrainTimerRegistry, IGrainManagementExtension, ICallChainReentrantGrainContext, IAsyncDisposable
     {
         private readonly GrainTypeSharedContext _shared;
-        private readonly IServiceScope serviceScope;
+        private readonly IServiceScope _serviceScope;
         private readonly WorkItemGroup _workItemGroup;
         private readonly List<(Message Message, CoarseStopwatch QueuedTime)> _waitingRequests = new();
         private readonly Dictionary<Message, CoarseStopwatch> _runningRequests = new();
         private readonly SingleWaiterAutoResetEvent _workSignal = new() { RunContinuationsAsynchronously = true };
-        private readonly GrainLifecycle lifecycle;
+        private readonly GrainLifecycle _lifecycle;
         private List<object> _pendingOperations;
         private Message _blockingRequest;
-        private Dictionary<Type, object> _components;
-        private bool isInWorkingSet;
+        private bool _isInWorkingSet;
         private CoarseStopwatch _busyDuration;
         private CoarseStopwatch _idleDuration;
         private GrainReference _selfReference;
@@ -56,10 +58,10 @@ namespace Orleans.Runtime
         {
             _shared = shared;
             Address = addr ?? throw new ArgumentNullException(nameof(addr));
-            lifecycle = new GrainLifecycle(_shared.Logger);
+            _lifecycle = new GrainLifecycle(_shared.Logger);
             State = ActivationState.Create;
-            serviceScope = applicationServices.CreateScope();
-            isInWorkingSet = true;
+            _serviceScope = applicationServices.CreateScope();
+            _isInWorkingSet = true;
             _workItemGroup = createWorkItemGroup(this);
             _messageLoopTask = this.RunOrQueueTask(RunMessageLoop);
         }
@@ -71,11 +73,11 @@ namespace Orleans.Runtime
         public ActivationState State { get; private set; }
         public PlacementStrategy PlacementStrategy => _shared.PlacementStrategy;
         public DateTime CollectionTicket { get; set; }
-        public IServiceProvider ActivationServices => serviceScope.ServiceProvider;
+        public IServiceProvider ActivationServices => _serviceScope.ServiceProvider;
         public ActivationId ActivationId => Address.ActivationId;
-        public IServiceProvider ServiceProvider => serviceScope?.ServiceProvider;
-        public IGrainLifecycle ObservableLifecycle => lifecycle;
-        internal ILifecycleObserver Lifecycle => lifecycle;
+        public IServiceProvider ServiceProvider => _serviceScope?.ServiceProvider;
+        public IGrainLifecycle ObservableLifecycle => _lifecycle;
+        internal ILifecycleObserver Lifecycle => _lifecycle;
         public GrainId GrainId => Address.GrainId;
         public bool IsExemptFromCollection => _shared.CollectionAgeLimit == Timeout.InfiniteTimeSpan;
         public DateTime KeepAliveUntil { get; set; } = DateTime.MinValue;
@@ -178,7 +180,7 @@ namespace Orleans.Runtime
 
         public TimeSpan CollectionAgeLimit => _shared.CollectionAgeLimit;
 
-        public TTarget GetTarget<TTarget>() => (TTarget)GrainInstance;
+        public TTarget GetTarget<TTarget>() where TTarget : class => (TTarget)GrainInstance; 
 
         TComponent ITargetHolder.GetComponent<TComponent>()
         {
@@ -198,7 +200,7 @@ namespace Orleans.Runtime
             return result;
         }
 
-        public TComponent GetComponent<TComponent>()
+        public TComponent GetComponent<TComponent>() where TComponent : class
         {
             TComponent result;
             if (GrainInstance is TComponent grainResult)
@@ -209,7 +211,7 @@ namespace Orleans.Runtime
             {
                 result = contextResult;
             }
-            else if (_components is not null && _components.TryGetValue(typeof(TComponent), out var resultObj))
+            else if (_extras?.Components is { } components && components.TryGetValue(typeof(TComponent), out var resultObj))
             {
                 result = (TComponent)resultObj;
             }
@@ -221,7 +223,7 @@ namespace Orleans.Runtime
             return result;
         }
 
-        public void SetComponent<TComponent>(TComponent instance)
+        public void SetComponent<TComponent>(TComponent instance) where TComponent : class
         {
             if (GrainInstance is TComponent)
             {
@@ -233,14 +235,18 @@ namespace Orleans.Runtime
                 throw new ArgumentException("Cannot override a component which is implemented by this grain context");
             }
 
-            if (instance == null)
+            lock (this)
             {
-                _components?.Remove(typeof(TComponent));
-                return;
-            }
+                if (instance == null)
+                {
+                    _extras?.Components?.Remove(typeof(TComponent));
+                    return;
+                }
 
-            if (_components is null) _components = new Dictionary<Type, object>();
-            _components[typeof(TComponent)] = instance;
+                _extras ??= new();
+                var components = _extras.Components ??= new();
+                components[typeof(TComponent)] = instance;
+            }
         }
 
         internal void SetGrainInstance(object grainInstance)
@@ -574,9 +580,7 @@ namespace Orleans.Runtime
             lock (this)
             {
                 var currentlyExecuting = includeExtraDetails ? _blockingRequest : null;
-                return @$"[Activation: {Address.SiloAddress}/{GrainId}{ActivationId} {GetActivationInfoString()} State={State} NonReentrancyQueueSize={WaitingCount
-                    } NumRunning={_runningRequests.Count} IdlenessTimeSpan={GetIdleness()} CollectionAgeLimit={_shared.CollectionAgeLimit}{
-                    (currentlyExecuting != null ? " CurrentlyExecuting=" : null)}{currentlyExecuting}]";
+                return @$"[Activation: {Address.SiloAddress}/{GrainId}{ActivationId} {GetActivationInfoString()} State={State} NonReentrancyQueueSize={WaitingCount} NumRunning={_runningRequests.Count} IdlenessTimeSpan={GetIdleness()} CollectionAgeLimit={_shared.CollectionAgeLimit}{(currentlyExecuting != null ? " CurrentlyExecuting=" : null)}{currentlyExecuting}]";
             }
         }
 
@@ -594,7 +598,7 @@ namespace Orleans.Runtime
                 await activator.DisposeInstance(this, GrainInstance);
             }
 
-            switch (serviceScope)
+            switch (_serviceScope)
             {
                 case IAsyncDisposable asyncDisposable:
                     await asyncDisposable.DisposeAsync();
@@ -608,8 +612,8 @@ namespace Orleans.Runtime
         bool IEquatable<IGrainContext>.Equals(IGrainContext other) => ReferenceEquals(this, other);
 
         public (TExtension, TExtensionInterface) GetOrSetExtension<TExtension, TExtensionInterface>(Func<TExtension> newExtensionFunc)
-            where TExtension : TExtensionInterface
-            where TExtensionInterface : IGrainExtension
+            where TExtension : class, TExtensionInterface
+            where TExtensionInterface : class, IGrainExtension
         {
             TExtension implementation;
             if (GetComponent<TExtensionInterface>() is object existing)
@@ -634,7 +638,7 @@ namespace Orleans.Runtime
         }
 
         public TExtensionInterface GetExtension<TExtensionInterface>()
-            where TExtensionInterface : IGrainExtension
+            where TExtensionInterface : class, IGrainExtension
         {
             if (GetComponent<TExtensionInterface>() is TExtensionInterface result)
             {
@@ -658,7 +662,7 @@ namespace Orleans.Runtime
                 var inactive = IsInactive;
 
                 // This instance will remain in the working set if it is either not pending removal or if it is currently active.
-                isInWorkingSet = !wouldRemove || !inactive;
+                _isInWorkingSet = !wouldRemove || !inactive;
                 return inactive;
             }
         }
@@ -876,9 +880,8 @@ namespace Orleans.Runtime
                 }
 
                 // Handle call-chain reentrancy
-                if (_shared.SchedulingOptions.AllowCallChainReentrancy
-                    && incoming.CallChainId == _blockingRequest.CallChainId
-                    && incoming.CallChainId != Guid.Empty)
+                if (incoming.GetReentrancyId() is Guid id
+                    && IsReentrantSection(id))
                 {
                     return true;
                 }
@@ -991,9 +994,9 @@ namespace Orleans.Runtime
                     _idleDuration = CoarseStopwatch.StartNew();
                 }
 
-                if (!isInWorkingSet)
+                if (!_isInWorkingSet)
                 {
-                    isInWorkingSet = true;
+                    _isInWorkingSet = true;
                     _shared.InternalRuntime.ActivationWorkingSet.OnActive(this);
                 }
 
@@ -1247,10 +1250,6 @@ namespace Orleans.Runtime
 
                     return false;
                 }
-                finally
-                {
-                    RequestContext.Clear();
-                }
             }
         }
 
@@ -1402,7 +1401,7 @@ namespace Orleans.Runtime
             {
                 CatalogInstruments.ActiviationShutdownViaDeactivateStuckActivation();
             }
-            else if (isInWorkingSet)
+            else if (_isInWorkingSet)
             {
                 CatalogInstruments.ActiviationShutdownViaDeactivateOnIdle();
             }
@@ -1511,6 +1510,45 @@ namespace Orleans.Runtime
             }
         }
 
+        void ICallChainReentrantGrainContext.OnEnterReentrantSection(Guid reentrancyId)
+        {
+            var tracker = GetComponent<ReentrantRequestTracker>();
+            if (tracker is null)
+            {
+                tracker = new ReentrantRequestTracker();
+                SetComponent(tracker);
+            }
+
+            tracker.EnterReentrantSection(reentrancyId);
+        }
+
+        void ICallChainReentrantGrainContext.OnExitReentrantSection(Guid reentrancyId)
+        {
+            var tracker = GetComponent<ReentrantRequestTracker>();
+            if (tracker is null)
+            {
+                throw new InvalidOperationException("Attempted to exit reentrant section without entering it.");
+            }
+
+            tracker.LeaveReentrantSection(reentrancyId);
+        }
+
+        private bool IsReentrantSection(Guid reentrancyId)
+        {
+            if (reentrancyId == Guid.Empty)
+            {
+                return false;
+            }
+
+            var tracker = GetComponent<ReentrantRequestTracker>();
+            if (tracker is null)
+            {
+                return false;
+            }
+
+            return tracker.IsReentrantSectionActive(reentrancyId);
+        }
+
         #endregion
 
         /// <summary>
@@ -1518,6 +1556,8 @@ namespace Orleans.Runtime
         /// </summary>
         private class ActivationDataExtra
         {
+            public Dictionary<Type, object> Components { get; set; }
+
             public HashSet<IGrainTimer> Timers { get; set; }
 
             /// <summary>
@@ -1573,6 +1613,37 @@ namespace Orleans.Runtime
 
             public class UnregisterFromCatalog : Command
             {
+            }
+        }
+
+        internal class ReentrantRequestTracker : Dictionary<Guid, int>
+        {
+            public void EnterReentrantSection(Guid reentrancyId)
+            {
+                Debug.Assert(reentrancyId != Guid.Empty);
+                ref var count = ref CollectionsMarshal.GetValueRefOrAddDefault(this, reentrancyId, out _);
+                ++count;
+            }
+
+            public void LeaveReentrantSection(Guid reentrancyId)
+            {
+                Debug.Assert(reentrancyId != Guid.Empty);
+                ref var count = ref CollectionsMarshal.GetValueRefOrNullRef(this, reentrancyId);
+                if (Unsafe.IsNullRef(ref count))
+                {
+                    return;
+                }
+
+                if (--count <= 0)
+                {
+                    Remove(reentrancyId);
+                }
+            }
+
+            public bool IsReentrantSectionActive(Guid reentrancyId)
+            {
+                Debug.Assert(reentrancyId != Guid.Empty);
+                return TryGetValue(reentrancyId, out var count) && count > 0;
             }
         }
     }

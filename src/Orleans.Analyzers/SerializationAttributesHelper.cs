@@ -1,3 +1,4 @@
+#nullable enable
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -18,9 +19,18 @@ namespace Orleans.Analyzers
             return false;
         }
 
-        public static (List<MemberDeclarationSyntax> UnannotatedMembers, List<MemberDeclarationSyntax> AnnotatedMembers, uint NextAvailableId) AnalyzeTypeDeclaration(TypeDeclarationSyntax declaration)
+        public readonly record struct TypeAnalysis
+        {
+            public List<MemberDeclarationSyntax> UnannotatedMembers { get; init; }
+            public List<MemberDeclarationSyntax> AnnotatedMembers { get; init; }
+            public uint NextAvailableId { get; init; }
+            public uint AnnotatedConstructorCount { get; init; }
+        }
+
+        public static TypeAnalysis AnalyzeTypeDeclaration(TypeDeclarationSyntax declaration)
         {
             uint nextId = 0;
+            uint annotatedConstructorCount = 0;
             var unannotatedSerializableMembers = new List<MemberDeclarationSyntax>();
             var annotatedSerializableMembers = new List<MemberDeclarationSyntax>();
             foreach (var member in declaration.Members)
@@ -47,6 +57,12 @@ namespace Orleans.Analyzers
                     continue;
                 }
 
+                if (member is ConstructorDeclarationSyntax constructorDeclaration && constructorDeclaration.HasAttribute(Constants.GenerateSerializerAttributeName))
+                {
+                    annotatedConstructorCount++;
+                    continue;
+                }
+
                 if (!member.IsInstanceMember() || !member.IsFieldOrAutoProperty() || member.HasAttribute(Constants.NonSerializedAttribute) || member.IsAbstract())
                 {
                     // No need to add any attribute.
@@ -56,7 +72,13 @@ namespace Orleans.Analyzers
                 unannotatedSerializableMembers.Add(member);
             }
 
-            return (unannotatedSerializableMembers, annotatedSerializableMembers, nextId);
+            return new TypeAnalysis
+            {
+                UnannotatedMembers = unannotatedSerializableMembers,
+                AnnotatedMembers = annotatedSerializableMembers,
+                NextAvailableId = nextId,
+                AnnotatedConstructorCount = annotatedConstructorCount
+            };
         }
     }
 }

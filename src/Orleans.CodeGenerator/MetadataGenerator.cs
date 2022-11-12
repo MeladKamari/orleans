@@ -1,10 +1,10 @@
-using Orleans.CodeGenerator.SyntaxGeneration;
+using System.Collections.Generic;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
-using System.Collections.Generic;
-using System.Linq;
+using Orleans.CodeGenerator.SyntaxGeneration;
 using static Microsoft.CodeAnalysis.CSharp.SyntaxFactory;
+using System;
 
 namespace Orleans.CodeGenerator
 {
@@ -17,140 +17,91 @@ namespace Orleans.CodeGenerator
             var addCopierMethod = configParam.Member("Copiers").Member("Add");
             var addConverterMethod = configParam.Member("Converters").Member("Add");
             var body = new List<StatementSyntax>();
-            body.AddRange(
-                metadataModel.SerializableTypes.Select(
-                    type =>
-                        (StatementSyntax)ExpressionStatement(
-                            InvocationExpression(
-                                addSerializerMethod,
-                                ArgumentList(
-                                    SingletonSeparatedList(
-                                        Argument(TypeOfExpression(GetCodecTypeName(type)))))))
-                ));
-            body.AddRange(
-                metadataModel.SerializableTypes.Select(
-                    type =>
-                        (StatementSyntax)ExpressionStatement(
-                            InvocationExpression(
-                                addCopierMethod,
-                                ArgumentList(
-                                    SingletonSeparatedList(
-                                        Argument(TypeOfExpression(GetCopierTypeName(type)))))))
-                ));
-            body.AddRange(
-                metadataModel.DetectedCopiers.Select(
-                    type =>
-                        (StatementSyntax)ExpressionStatement(
-                            InvocationExpression(
-                                addCopierMethod,
-                                ArgumentList(
-                                    SingletonSeparatedList(
-                                        Argument(TypeOfExpression(type.ToOpenTypeSyntax()))))))
-                ));
-            body.AddRange(
-                metadataModel.DetectedSerializers.Select(
-                    type =>
-                        (StatementSyntax)ExpressionStatement(
-                            InvocationExpression(
-                                addSerializerMethod,
-                                ArgumentList(
-                                    SingletonSeparatedList(
-                                        Argument(TypeOfExpression(type.ToOpenTypeSyntax()))))))
-                ));
-            body.AddRange(
-                metadataModel.DetectedConverters.Select(
-                    type =>
-                        (StatementSyntax)ExpressionStatement(
-                            InvocationExpression(
-                                addConverterMethod,
-                                ArgumentList(
-                                    SingletonSeparatedList(
-                                        Argument(TypeOfExpression(type.ToOpenTypeSyntax()))))))));
+
+            foreach (var type in metadataModel.SerializableTypes)
+            {
+                body.Add(ExpressionStatement(InvocationExpression(addSerializerMethod,
+                    ArgumentList(SingletonSeparatedList(Argument(TypeOfExpression(GetCodecTypeName(type))))))));
+            }
+
+            foreach (var type in metadataModel.SerializableTypes)
+            {
+                if (type.IsEnumType) continue;
+
+                if (!metadataModel.DefaultCopiers.TryGetValue(type, out var typeName))
+                    typeName = GetCopierTypeName(type);
+
+                body.Add(ExpressionStatement(InvocationExpression(addCopierMethod,
+                    ArgumentList(SingletonSeparatedList(Argument(TypeOfExpression(typeName)))))));
+            }
+
+            foreach (var type in metadataModel.DetectedCopiers)
+            {
+                body.Add(ExpressionStatement(InvocationExpression(addCopierMethod,
+                    ArgumentList(SingletonSeparatedList(Argument(TypeOfExpression(type.ToOpenTypeSyntax())))))));
+            }
+
+            foreach (var type in metadataModel.DetectedSerializers)
+            {
+                body.Add(ExpressionStatement(InvocationExpression(addSerializerMethod,
+                    ArgumentList(SingletonSeparatedList(Argument(TypeOfExpression(type.ToOpenTypeSyntax())))))));
+            }
+
+            foreach (var type in metadataModel.DetectedConverters)
+            {
+                body.Add(ExpressionStatement(InvocationExpression(addConverterMethod,
+                    ArgumentList(SingletonSeparatedList(Argument(TypeOfExpression(type.ToOpenTypeSyntax())))))));
+            }
+
             var addProxyMethod = configParam.Member("InterfaceProxies").Member("Add");
-            body.AddRange(
-                metadataModel.GeneratedProxies.Select(
-                    type =>
-                        (StatementSyntax)ExpressionStatement(
-                            InvocationExpression(
-                                addProxyMethod,
-                                ArgumentList(
-                                    SingletonSeparatedList(
-                                        Argument(TypeOfExpression(type.TypeSyntax))))))
-                ));
+            foreach (var type in metadataModel.GeneratedProxies)
+            {
+                body.Add(ExpressionStatement(InvocationExpression(addProxyMethod,
+                    ArgumentList(SingletonSeparatedList(Argument(TypeOfExpression(type.TypeSyntax)))))));
+            }
+
             var addInvokableInterfaceMethod = configParam.Member("Interfaces").Member("Add");
-            body.AddRange(
-                metadataModel.InvokableInterfaces.Select(
-                    type =>
-                        (StatementSyntax)ExpressionStatement(
-                            InvocationExpression(
-                                addInvokableInterfaceMethod,
-                                ArgumentList(
-                                    SingletonSeparatedList(
-                                        Argument(TypeOfExpression(type.InterfaceType.ToOpenTypeSyntax()))))))
-                ));
+            foreach (var type in metadataModel.InvokableInterfaces)
+            {
+                body.Add(ExpressionStatement(InvocationExpression(addInvokableInterfaceMethod,
+                    ArgumentList(SingletonSeparatedList(Argument(TypeOfExpression(type.InterfaceType.ToOpenTypeSyntax())))))));
+            }
+
             var addInvokableInterfaceImplementationMethod = configParam.Member("InterfaceImplementations").Member("Add");
-            body.AddRange(
-                metadataModel.InvokableInterfaceImplementations.Select(
-                    type =>
-                        (StatementSyntax)ExpressionStatement(
-                            InvocationExpression(
-                                addInvokableInterfaceImplementationMethod ,
-                                ArgumentList(
-                                    SingletonSeparatedList(
-                                        Argument(TypeOfExpression(type.ToOpenTypeSyntax()))))))
-                ));
+            foreach (var type in metadataModel.InvokableInterfaceImplementations)
+            {
+                body.Add(ExpressionStatement(InvocationExpression(addInvokableInterfaceImplementationMethod,
+                    ArgumentList(SingletonSeparatedList(Argument(TypeOfExpression(type.ToOpenTypeSyntax())))))));
+            }
 
             var addActivatorMethod = configParam.Member("Activators").Member("Add");
-            body.AddRange(
-                metadataModel.ActivatableTypes.Select(
-                    type =>
-                        (StatementSyntax)ExpressionStatement(
-                            InvocationExpression(
-                                addActivatorMethod,
-                                ArgumentList(
-                                    SingletonSeparatedList(
-                                        Argument(TypeOfExpression(GetActivatorTypeName(type)))))))
-                ));
-            body.AddRange(
-                metadataModel.DetectedActivators.Select(
-                    type =>
-                        (StatementSyntax)ExpressionStatement(
-                            InvocationExpression(
-                                addActivatorMethod,
-                                ArgumentList(
-                                    SingletonSeparatedList(
-                                        Argument(TypeOfExpression(type.ToOpenTypeSyntax()))))))
-                ));
+            foreach (var type in metadataModel.ActivatableTypes)
+            {
+                body.Add(ExpressionStatement(InvocationExpression(addActivatorMethod,
+                    ArgumentList(SingletonSeparatedList(Argument(TypeOfExpression(GetActivatorTypeName(type))))))));
+            }
+
+            foreach (var type in metadataModel.DetectedActivators)
+            {
+                body.Add(ExpressionStatement(InvocationExpression(addActivatorMethod,
+                    ArgumentList(SingletonSeparatedList(Argument(TypeOfExpression(type.ToOpenTypeSyntax())))))));
+            }
 
             var addWellKnownTypeIdMethod = configParam.Member("WellKnownTypeIds").Member("Add");
-            body.AddRange(
-                metadataModel.WellKnownTypeIds.Select(
-                    type =>
-                        (StatementSyntax)ExpressionStatement(
-                            InvocationExpression(
-                                addWellKnownTypeIdMethod,
-                                ArgumentList(SeparatedList(
-                                    new[]
-                                    {
-                                        Argument(LiteralExpression(SyntaxKind.NumericLiteralExpression, Literal(type.Id))),
-                                        Argument(TypeOfExpression(type.Type))
-                                    }))))
-                ));
-            
+            foreach (var type in metadataModel.WellKnownTypeIds)
+            {
+                body.Add(ExpressionStatement(InvocationExpression(addWellKnownTypeIdMethod,
+                    ArgumentList(SeparatedList(new[] { Argument(LiteralExpression(SyntaxKind.NumericLiteralExpression, Literal(type.Id))), Argument(TypeOfExpression(type.Type)) })))));
+            }
+
             var addTypeAliasMethod = configParam.Member("WellKnownTypeAliases").Member("Add");
-            body.AddRange(
-                metadataModel.TypeAliases.Select(
-                    type =>
-                        (StatementSyntax)ExpressionStatement(
-                            InvocationExpression(
-                                addTypeAliasMethod,
-                                ArgumentList(SeparatedList(
-                                    new[]
-                                    {
-                                        Argument(LiteralExpression(SyntaxKind.NumericLiteralExpression, Literal(type.Alias))),
-                                        Argument(TypeOfExpression(type.Type))
-                                    }))))
-                ));
+            foreach (var type in metadataModel.TypeAliases)
+            {
+                body.Add(ExpressionStatement(InvocationExpression(addTypeAliasMethod,
+                    ArgumentList(SeparatedList(new[] { Argument(LiteralExpression(SyntaxKind.StringLiteralExpression, Literal(type.Alias))), Argument(TypeOfExpression(type.Type)) })))));
+            }
+
+            AddCompoundTypeAliases(metadataModel, configParam, body);
 
             var configType = libraryTypes.TypeManifestOptions;
             var configureMethod = MethodDeclaration(PredefinedType(Token(SyntaxKind.VoidKeyword)), "Configure")
@@ -167,13 +118,88 @@ namespace Orleans.CodeGenerator
                 .AddMembers(configureMethod);
         }
 
+        private static void AddCompoundTypeAliases(MetadataModel metadataModel, IdentifierNameSyntax configParam, List<StatementSyntax> body)
+        {
+            // The goal is to emit a tree describing all of the generated invokers in the form:
+            // ("inv", typeof(ProxyBaseType), typeof(ContainingInterface), "<MethodId>")
+            // The first step is to collate the invokers into tree to ease the process of generating a tree in code.
+            var nodeId = 0;
+            AddCompoundTypeAliases(body, configParam.Member("CompoundTypeAliases"), metadataModel.CompoundTypeAliases);
+            void AddCompoundTypeAliases(List<StatementSyntax> body, ExpressionSyntax tree, CompoundTypeAliasTree aliases)
+            {
+                ExpressionSyntax node;
+
+                if (aliases.Key.IsDefault)
+                {
+                    // At the root node, do not create a new node, just enumerate over the child nodes.
+                    node = tree;
+                }
+                else
+                {
+                    var nodeName = IdentifierName($"n{++nodeId}");
+                    node = nodeName;
+                    var valueExpression = aliases.Value switch
+                    {
+                        { } type => Argument(TypeOfExpression(type)),
+                        _ => null
+                    };
+
+                    // Get the arguments for the Add call
+                    var addArguments = aliases.Key switch
+                    {
+                        { IsType: true } typeKey => valueExpression switch
+                        {
+                            // Call the two-argument Add overload to add a key and value.
+                            { } argument => new[] { Argument(TypeOfExpression(typeKey.TypeValue.ToOpenTypeSyntax())), argument },
+
+                            // Call the one-argument Add overload to add only a key.
+                            _ => new[] { Argument(TypeOfExpression(typeKey.TypeValue.ToOpenTypeSyntax())) },
+                        },
+                        { IsString: true } stringKey => valueExpression switch
+                        {
+                            // Call the two-argument Add overload to add a key and value.
+                            { } argument => new[] { Argument(LiteralExpression(SyntaxKind.StringLiteralExpression, Literal(stringKey.StringValue))), argument },
+
+                            // Call the one-argument Add overload to add only a key.
+                            _ => new[] { Argument(LiteralExpression(SyntaxKind.StringLiteralExpression, Literal(stringKey.StringValue))) },
+                        },
+                        _ => throw new InvalidOperationException("Unexpected alias key")
+                    };
+
+                    if (aliases.Children is { Count: > 0 })
+                    {
+                        // C#: var {newTree.Identifier} = {tree}.Add({addArguments});
+                        body.Add(LocalDeclarationStatement(VariableDeclaration(
+                            ParseTypeName("var"),
+                            SingletonSeparatedList(VariableDeclarator(nodeName.Identifier).WithInitializer(EqualsValueClause(InvocationExpression(
+                                tree.Member("Add"),
+                                ArgumentList(SeparatedList(addArguments)))))))));
+                    }
+                    else
+                    {
+                        // Do not emit a variable.
+                        // C#: {tree}.Add({addArguments});
+                        body.Add(ExpressionStatement(InvocationExpression(tree.Member("Add"), ArgumentList(SeparatedList(addArguments)))));
+                    }
+                }
+
+                if (aliases.Children is { Count: > 0 })
+                {
+                    foreach (var child in aliases.Children.Values)
+                    {
+                        AddCompoundTypeAliases(body, node, child);
+                    }
+                }
+            }
+        }
+
         public static TypeSyntax GetCodecTypeName(this ISerializableTypeDescription type)
         {
             var genericArity = type.TypeParameters.Count;
             var name = SerializerGenerator.GetSimpleClassName(type);
             if (genericArity > 0)
             {
-                name += $"<{new string(',', genericArity - 1)}>";
+                name = $"{name}<{new string(',', genericArity - 1)}>";
             }
 
             return ParseTypeName(type.GeneratedNamespace + "." + name);
@@ -185,7 +211,7 @@ namespace Orleans.CodeGenerator
             var name = CopierGenerator.GetSimpleClassName(type);
             if (genericArity > 0)
             {
-                name += $"<{new string(',', genericArity - 1)}>";
+                name = $"{name}<{new string(',', genericArity - 1)}>";
             }
 
             return ParseTypeName(type.GeneratedNamespace + "." + name);
@@ -197,10 +223,11 @@ namespace Orleans.CodeGenerator
             var name = ActivatorGenerator.GetSimpleClassName(type);
             if (genericArity > 0)
             {
-                name += $"<{new string(',', genericArity - 1)}>";
+                name = $"{name}<{new string(',', genericArity - 1)}>";
             }
 
             return ParseTypeName(type.GeneratedNamespace + "." + name);
         }
+
     }
 }

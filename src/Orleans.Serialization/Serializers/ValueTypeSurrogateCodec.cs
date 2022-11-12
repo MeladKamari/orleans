@@ -52,7 +52,7 @@ public sealed class ValueTypeSurrogateCodec<TField, TSurrogate, TConverter>
 
     /// <inheritdoc/>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void Deserialize<TInput>(ref Reader<TInput> reader, ref TField value)
+    public void Deserialize<TInput>(ref Reader<TInput> reader, scoped ref TField value)
     {
         TSurrogate surrogate = default;
         _surrogateSerializer.Deserialize(ref reader, ref surrogate);
@@ -62,6 +62,7 @@ public sealed class ValueTypeSurrogateCodec<TField, TSurrogate, TConverter>
     /// <inheritdoc/>
     public TField ReadValue<TInput>(ref Reader<TInput> reader, Field field)
     {
+        field.EnsureWireTypeTagDelimited();
         ReferenceCodec.MarkValueField(reader.Session);
         TField result = default;
         Deserialize(ref reader, ref result);
@@ -70,7 +71,7 @@ public sealed class ValueTypeSurrogateCodec<TField, TSurrogate, TConverter>
 
     /// <inheritdoc/>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void Serialize<TBufferWriter>(ref Writer<TBufferWriter> writer, ref TField value) where TBufferWriter : IBufferWriter<byte>
+    public void Serialize<TBufferWriter>(ref Writer<TBufferWriter> writer, scoped ref TField value) where TBufferWriter : IBufferWriter<byte>
     {
         var surrogate = _converter.ConvertToSurrogate(in value);
         _surrogateSerializer.Serialize(ref writer, ref surrogate);

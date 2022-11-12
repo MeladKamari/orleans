@@ -252,7 +252,10 @@ namespace Orleans.Runtime
                     return;
                 }
 
-                RequestContextExtensions.Import(message.RequestContextData, message);
+                if (message.RequestContextData is { Count: > 0 })
+                {
+                    RequestContextExtensions.Import(message.RequestContextData);
+                }
 
                 Response response;
                 try
@@ -287,10 +290,9 @@ namespace Orleans.Runtime
 
                 if (response.Exception is { } invocationException)
                 {
-                    var isDebugLog = invokeExceptionLogger.IsEnabled(LogLevel.Debug);
-                    if (message.Direction == Message.Directions.OneWay || isDebugLog)
+                    if (message.Direction == Message.Directions.OneWay || invokeExceptionLogger.IsEnabled(LogLevel.Debug))
                     {
-                        var logLevel = isDebugLog ? LogLevel.Debug : LogLevel.Warning;
+                        var logLevel = message.Direction != Message.Directions.OneWay ? LogLevel.Debug : LogLevel.Warning;
                         this.invokeExceptionLogger.Log(
                             logLevel,
                             (int)ErrorCode.GrainInvokeException,
@@ -326,10 +328,6 @@ namespace Orleans.Runtime
                 {
                     SafeSendExceptionResponse(message, exc2);
                 }
-            }
-            finally
-            {
-                RequestContext.Clear();
             }
         }
 

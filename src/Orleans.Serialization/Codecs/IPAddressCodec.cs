@@ -31,29 +31,29 @@ namespace Orleans.Serialization.Codecs
         /// <returns>The value.</returns>
         public static IPAddress ReadValue<TInput>(ref Buffers.Reader<TInput> reader, Field field)
         {
-            if (field.WireType == WireType.Reference)
+            if (field.IsReference)
             {
-                return (IPAddress)ReferenceCodec.ReadReference(ref reader, field, CodecFieldType);
+                return ReferenceCodec.ReadReference<IPAddress, TInput>(ref reader, field);
             }
 
-            var length = reader.ReadVarUInt32();
-            IPAddress result;
-#if NET5_0_OR_GREATER
-            if (reader.TryReadBytes((int)length, out var bytes))
-            {
-                result = new IPAddress(bytes);
-            }
-            else
-            {
-#endif
-                var addressBytes = reader.ReadBytes(length);
-                result = new IPAddress(addressBytes);
-#if NET5_0_OR_GREATER
-            }
-#endif
-
+            field.EnsureWireType(WireType.LengthPrefixed);
+            var result = ReadRaw(ref reader);
             ReferenceCodec.RecordObject(reader.Session, result);
             return result;
+        }
+
+        /// <summary>
+        /// Reads the raw length prefixed IP address value.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static IPAddress ReadRaw<TInput>(ref Buffers.Reader<TInput> reader)
+        {
+            var length = reader.ReadVarUInt32();
+#if NET5_0_OR_GREATER
+            if (reader.TryReadBytes((int)length, out var bytes))
+                return new(bytes);
+#endif
+            return new(reader.ReadBytes(length));
         }
 
         /// <summary>
@@ -79,30 +79,33 @@ namespace Orleans.Serialization.Codecs
         /// <param name="value">The value.</param>
         public static void WriteField<TBufferWriter>(ref Buffers.Writer<TBufferWriter> writer, uint fieldIdDelta, Type expectedType, IPAddress value) where TBufferWriter : IBufferWriter<byte>
         {
-            if (ReferenceCodec.TryWriteReferenceField(ref writer, fieldIdDelta, expectedType, value))
+            if (ReferenceCodec.TryWriteReferenceField(ref writer, fieldIdDelta, expectedType, CodecFieldType, value))
             {
                 return;
             }
 
             writer.WriteFieldHeader(fieldIdDelta, expectedType, CodecFieldType, WireType.LengthPrefixed);
+            WriteRaw(ref writer, value);
+        }
 
-            Unsafe.SkipInit(out Guid tmp); // workaround for C#10 limitation around ref scoping (C#11 will add scoped ref parameters)
-            var buffer = MemoryMarshal.AsBytes(MemoryMarshal.CreateSpan(ref tmp, 1));
-            if (!value.TryWriteBytes(buffer, out var length)) throw new NotSupportedException();
+        /// <summary>
+        /// Writes the raw length prefixed IP address value.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void WriteRaw<TBufferWriter>(ref Buffers.Writer<TBufferWriter> writer, IPAddress value) where TBufferWriter : IBufferWriter<byte>
+        {
+            Span<byte> buffer = stackalloc byte[16];
+            if (!value.TryWriteBytes(buffer, out var length)) ThrowNotSupported();
             buffer = buffer[..length];
 
             writer.WriteVarUInt32((uint)buffer.Length);
             writer.Write(buffer);
         }
+
+        private static void ThrowNotSupported() => throw new NotSupportedException();
+
     }
 
-    /// <summary>
-    /// Copier for <see cref="IPAddress"/>.
-    /// </summary>
     [RegisterCopier]
-    public sealed class IPAddressCopier : IDeepCopier<IPAddress>
-    {
-        /// <inheritdoc/>
-        public IPAddress DeepCopy(IPAddress input, CopyContext _) => input;
-    }
+    internal sealed class IPAddressCopier : ShallowCopier<IPAddress>, IDerivedTypeCopier { }
 }

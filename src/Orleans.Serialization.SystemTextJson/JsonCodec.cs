@@ -16,7 +16,7 @@ namespace Orleans.Serialization;
 /// <summary>
 /// A serialization codec which uses <see cref="JsonSerializer"/>.
 /// </summary>
-[WellKnownAlias(WellKnownAlias)]
+[Alias(WellKnownAlias)]
 public class JsonCodec : IGeneralizedCodec, IGeneralizedCopier, ITypeFilter
 {
     private static readonly Type SelfType = typeof(JsonCodec);
@@ -46,7 +46,7 @@ public class JsonCodec : IGeneralizedCodec, IGeneralizedCopier, ITypeFilter
     }
 
     /// <inheritdoc/>
-    void IFieldCodec<object>.WriteField<TBufferWriter>(ref Writer<TBufferWriter> writer, uint fieldIdDelta, Type expectedType, object value)
+    void IFieldCodec.WriteField<TBufferWriter>(ref Writer<TBufferWriter> writer, uint fieldIdDelta, Type expectedType, object value)
     {
         if (ReferenceCodec.TryWriteReferenceField(ref writer, fieldIdDelta, expectedType, value))
         {
@@ -59,12 +59,10 @@ public class JsonCodec : IGeneralizedCodec, IGeneralizedCopier, ITypeFilter
         // Note that the codec is responsible for serializing the type of the value itself.
         writer.WriteFieldHeader(fieldIdDelta, expectedType, SelfType, WireType.TagDelimited);
 
-        var type = value.GetType();
-
         // Write the type name
         ReferenceCodec.MarkValueField(writer.Session);
-        writer.WriteFieldHeader(0, typeof(byte[]), typeof(byte[]), WireType.LengthPrefixed);
-        writer.Session.TypeCodec.WriteLengthPrefixed(ref writer, type);
+        writer.WriteFieldHeaderExpected(0, WireType.LengthPrefixed);
+        writer.Session.TypeCodec.WriteLengthPrefixed(ref writer, value.GetType());
 
         // Write the serialized payload
         // Note that the Utf8JsonWriter and PooledArrayBufferWriter could be pooled as long as they're correctly
@@ -72,12 +70,12 @@ public class JsonCodec : IGeneralizedCodec, IGeneralizedCopier, ITypeFilter
         var bufferWriter = new BufferWriterBox<PooledArrayBufferWriter>(new PooledArrayBufferWriter());
         try
         {
-            using var jsonWriter = new Utf8JsonWriter(bufferWriter);
+            var jsonWriter = new Utf8JsonWriter(bufferWriter);
             JsonSerializer.Serialize(jsonWriter, value, _options.SerializerOptions);
             jsonWriter.Flush();
 
             ReferenceCodec.MarkValueField(writer.Session);
-            writer.WriteFieldHeader(1, typeof(byte[]), typeof(byte[]), WireType.LengthPrefixed);
+            writer.WriteFieldHeaderExpected(1, WireType.LengthPrefixed);
             writer.WriteVarUInt32((uint)bufferWriter.Value.Length);
             bufferWriter.Value.CopyTo(ref writer);
         }
@@ -90,17 +88,14 @@ public class JsonCodec : IGeneralizedCodec, IGeneralizedCopier, ITypeFilter
     }
 
     /// <inheritdoc/>
-    object IFieldCodec<object>.ReadValue<TInput>(ref Reader<TInput> reader, Field field)
+    object IFieldCodec.ReadValue<TInput>(ref Reader<TInput> reader, Field field)
     {
-        if (field.WireType == WireType.Reference)
+        if (field.IsReference)
         {
-            return ReferenceCodec.ReadReference<object, TInput>(ref reader, field);
+            return ReferenceCodec.ReadReference(ref reader, field.FieldType);
         }
 
-        if (field.WireType != WireType.TagDelimited)
-        {
-            ThrowUnsupportedWireTypeException(field);
-        }
+        field.EnsureWireTypeTagDelimited();
 
         var placeholderReferenceId = ReferenceCodec.CreateRecordPlaceholder(reader.Session);
         object result = null;
@@ -180,25 +175,30 @@ public class JsonCodec : IGeneralizedCodec, IGeneralizedCopier, ITypeFilter
     }
 
     /// <inheritdoc/>
-    object IDeepCopier<object>.DeepCopy(object input, CopyContext context)
+    object IDeepCopier.DeepCopy(object input, CopyContext context)
     {
-        if (input is null) return null;
+        if (context.TryGetCopy(input, out object result))
+            return result;
+
 
         var bufferWriter = new BufferWriterBox<PooledArrayBufferWriter>(new PooledArrayBufferWriter());
-        using var jsonWriter = new Utf8JsonWriter(bufferWriter);
-        JsonSerializer.Serialize(jsonWriter, input, _options.SerializerOptions);
-        var sequence = bufferWriter.Value.AsReadOnlySequence();
         try
         {
+            var jsonWriter = new Utf8JsonWriter(bufferWriter);
+            JsonSerializer.Serialize(jsonWriter, input, _options.SerializerOptions);
+            jsonWriter.Flush();
+
+            var sequence = bufferWriter.Value.AsReadOnlySequence();
             var jsonReader = new Utf8JsonReader(sequence, _options.ReaderOptions);
-            var result = JsonSerializer.Deserialize(ref jsonReader, input.GetType(), _options.SerializerOptions);
-            context.RecordCopy(input, result);
-            return result;
+            result = JsonSerializer.Deserialize(ref jsonReader, input.GetType(), _options.SerializerOptions);
         }
         finally
         {
             bufferWriter.Value.Dispose();
         }
+
+        context.RecordCopy(input, result);
+        return result;
     }
 
     /// <inheritdoc/>
@@ -222,9 +222,6 @@ public class JsonCodec : IGeneralizedCodec, IGeneralizedCopier, ITypeFilter
 
     /// <inheritdoc/>
     bool? ITypeFilter.IsTypeAllowed(Type type) => (((IGeneralizedCopier)this).IsSupportedType(type) || ((IGeneralizedCodec)this).IsSupportedType(type)) ? true : null;
-
-    private static void ThrowUnsupportedWireTypeException(Field field) => throw new UnsupportedWireTypeException(
-        $"Only a {nameof(WireType)} value of {WireType.TagDelimited} is supported for JSON fields. {field}");
 
     private static void ThrowTypeFieldMissing() => throw new RequiredFieldMissingException("Serialized value is missing its type field.");
 }

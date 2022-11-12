@@ -1,14 +1,16 @@
-using Orleans.Serialization.Buffers;
-using Orleans.Serialization.Codecs;
-using Orleans.Serialization.Serializers;
-using Orleans.Serialization.WireProtocol;
-using Microsoft.Extensions.DependencyInjection;
 using System;
 using System.Buffers;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Threading;
+using Microsoft.Extensions.DependencyInjection;
+using Orleans.Serialization.Activators;
+using Orleans.Serialization.Buffers;
+using Orleans.Serialization.Cloning;
+using Orleans.Serialization.Codecs;
+using Orleans.Serialization.Serializers;
+using Orleans.Serialization.WireProtocol;
 
 namespace Orleans.Serialization.GeneratedCodeHelpers
 {
@@ -67,21 +69,17 @@ namespace Orleans.Serialization.GeneratedCodeHelpers
                     }
                 }
 
-                return Unwrap(ActivatorUtilities.GetServiceOrCreateInstance<TService>(codecProvider.Services));
-            }
-            finally
-            {
-                state.Exit();
-            }
-
-            static TService Unwrap(TService val)
-            {
+                var val = ActivatorUtilities.GetServiceOrCreateInstance<TService>(codecProvider.Services);
                 while (val is IServiceHolder<TService> wrapping)
                 {
                     val = wrapping.Value;
                 }
 
                 return val;
+            }
+            finally
+            {
+                state.Exit();
             }
         }
 
@@ -141,6 +139,11 @@ namespace Orleans.Serialization.GeneratedCodeHelpers
             return null;
         }
 
+        /// <summary>
+        /// Returns the provided copier if it's not shallow-copyable.
+        /// </summary>
+        public static IDeepCopier<T> GetOptionalCopier<T>(IDeepCopier<T> copier) => copier is IOptionalDeepCopier o && o.IsShallowCopyable() ? null : copier;
+
         /// <summary>        
         /// Generated code helper method which throws an <see cref="ArgumentOutOfRangeException"/>.
         /// </summary>                
@@ -148,56 +151,48 @@ namespace Orleans.Serialization.GeneratedCodeHelpers
             => throw new ArgumentOutOfRangeException(message: $"The argument index value {index} must be between 0 and {maxArgs}", null);
 
         /// <summary>
-        /// Reads a field header.
+        /// Expects empty content (a single field header of either <see cref="ExtendedWireType.EndBaseFields"/> or <see cref="ExtendedWireType.EndTagDelimited"/>),
+        /// but will consume any unexpected fields also.
         /// </summary>
-        /// <typeparam name="TInput">The reader input type.</typeparam>
-        /// <param name="reader">The reader.</param>
-        /// <param name="header">The header.</param>
-        /// <param name="id">The identifier.</param>
-        /// <returns>The field id, if a new field header was written, otherwise <c>-1</c>.</returns>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static int ReadHeader<TInput>(ref Reader<TInput> reader, ref Field header, int id)
+        public static void ConsumeEndBaseOrEndObject<TInput>(this ref Reader<TInput> reader)
         {
-            reader.ReadFieldHeader(ref header);
-            if (header.IsEndBaseOrEndObject)
-            {
-                return -1;
-            }
-
-            return (int)(id + header.FieldIdDelta);
+            Unsafe.SkipInit(out Field field);
+            reader.ReadFieldHeader(ref field);
+            reader.ConsumeEndBaseOrEndObject(ref field);
         }
 
         /// <summary>
-        /// Reads the header expecting an end base tag or end object tag.
+        /// Expects empty content (a single field header of either <see cref="ExtendedWireType.EndBaseFields"/> or <see cref="ExtendedWireType.EndTagDelimited"/>),
+        /// but will consume any unexpected fields also.
         /// </summary>
-        /// <typeparam name="TInput">The reader input type.</typeparam>
-        /// <param name="reader">The reader.</param>
-        /// <param name="header">The header.</param>
-        /// <param name="id">The identifier.</param>
-        /// <returns>The field id, if a new field header was written, otherwise <c>-1</c>.</returns>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static int ReadHeaderExpectingEndBaseOrEndObject<TInput>(ref Reader<TInput> reader, ref Field header, int id)
+        public static void ConsumeEndBaseOrEndObject<TInput>(this ref Reader<TInput> reader, scoped ref Field field)
         {
-            reader.ReadFieldHeader(ref header);
-            if (header.IsEndBaseOrEndObject)
-            {
-                return -1;
-            }
+            if (!field.IsEndBaseOrEndObject)
+                ConsumeUnexpectedContent(ref reader, ref field);
+        }
 
-            return (int)(id + header.FieldIdDelta);
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void ConsumeUnexpectedContent<TInput>(this ref Reader<TInput> reader, scoped ref Field field)
+        {
+            do
+            {
+                reader.ConsumeUnknownField(ref field);
+                reader.ReadFieldHeader(ref field);
+            } while (!field.IsEndBaseOrEndObject);
         }
 
         /// <summary>
         /// Serializes an unexpected value.
         /// </summary>
         /// <typeparam name="TBufferWriter">The buffer writer type.</typeparam>
-        /// <typeparam name="TField">The value type.</typeparam>
         /// <param name="writer">The writer.</param>
         /// <param name="fieldIdDelta">The field identifier delta.</param>
         /// <param name="expectedType">The expected type.</param>
         /// <param name="value">The value.</param>
         [MethodImpl(MethodImplOptions.NoInlining)]
-        public static void SerializeUnexpectedType<TBufferWriter, TField>(ref Writer<TBufferWriter> writer, uint fieldIdDelta, Type expectedType, TField value) where TBufferWriter : IBufferWriter<byte>
+        public static void SerializeUnexpectedType<TBufferWriter>(this ref Writer<TBufferWriter> writer, uint fieldIdDelta, Type expectedType, object value) where TBufferWriter : IBufferWriter<byte>
         {
             var specificSerializer = writer.Session.CodecProvider.GetCodec(value.GetType());
             specificSerializer.WriteField(ref writer, fieldIdDelta, expectedType, value);
@@ -212,7 +207,7 @@ namespace Orleans.Serialization.GeneratedCodeHelpers
         /// <param name="field">The field.</param>
         /// <returns>The value.</returns>
         [MethodImpl(MethodImplOptions.NoInlining)]
-        public static TField DeserializeUnexpectedType<TInput, TField>(ref Reader<TInput> reader, Field field)
+        public static TField DeserializeUnexpectedType<TInput, TField>(this ref Reader<TInput> reader, scoped ref Field field) where TField : class
         {
             var specificSerializer = reader.Session.CodecProvider.GetCodec(field.FieldType);
             return (TField)specificSerializer.ReadValue(ref reader, field);
@@ -290,6 +285,36 @@ namespace Orleans.Serialization.GeneratedCodeHelpers
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// Default copier implementation for (rarely copied) exception classes
+        /// </summary>
+        public abstract class ExceptionCopier<T, B> : IDeepCopier<T>, IBaseCopier<T> where T : B where B : Exception
+        {
+            private readonly IActivator<T> _activator;
+            private readonly IBaseCopier<B> _baseTypeCopier;
+
+            protected ExceptionCopier(ICodecProvider codecProvider)
+            {
+                _activator = GetService<IActivator<T>>(this, codecProvider);
+                _baseTypeCopier = GetService<IBaseCopier<B>>(this, codecProvider);
+            }
+
+            public T DeepCopy(T original, CopyContext context)
+            {
+                if (original is null)
+                    return null;
+
+                if (original.GetType() != typeof(T))
+                    return context.DeepCopy(original);
+
+                var result = _activator.Create();
+                DeepCopy(original, result, context);
+                return result;
+            }
+
+            public virtual void DeepCopy(T input, T output, CopyContext context) => _baseTypeCopier.DeepCopy(input, output, context);
         }
     }
 }

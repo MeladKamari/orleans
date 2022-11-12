@@ -1,7 +1,8 @@
-using Orleans.Serialization.Cloning;
-using Orleans.Serialization.Serializers;
-using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Linq;
+using Orleans.Serialization.Cloning;
+using Orleans.Serialization.GeneratedCodeHelpers;
+using Orleans.Serialization.Serializers;
 
 namespace Orleans.Serialization.Codecs
 {
@@ -21,27 +22,12 @@ namespace Orleans.Serialization.Codecs
         }
 
         /// <inheritdoc/>
-        public override ImmutableArray<T> ConvertFromSurrogate(ref ImmutableArraySurrogate<T> surrogate) => surrogate.Values switch
-        {
-            null => default,
-            object => ImmutableArray.CreateRange(surrogate.Values)
-        };
+        public override ImmutableArray<T> ConvertFromSurrogate(ref ImmutableArraySurrogate<T> surrogate)
+            => surrogate.Values is { } v ? ImmutableArray.Create(v) : default;
 
         /// <inheritdoc/>
         public override void ConvertToSurrogate(ImmutableArray<T> value, ref ImmutableArraySurrogate<T> surrogate)
-        {
-            if (value.IsDefault)
-            {
-                surrogate = default;
-            }
-            else
-            {
-                surrogate = new ImmutableArraySurrogate<T>
-                {
-                    Values = new List<T>(value)
-                };
-            }
-        }
+            => surrogate.Values = value.IsDefault ? null : value.ToArray();
     }
 
     /// <summary>
@@ -55,8 +41,8 @@ namespace Orleans.Serialization.Codecs
         /// Gets or sets the values.
         /// </summary>
         /// <value>The values.</value>
-        [Id(1)]
-        public List<T> Values { get; set; }
+        [Id(0)]
+        public T[] Values;
     }
 
     /// <summary>
@@ -64,9 +50,25 @@ namespace Orleans.Serialization.Codecs
     /// </summary>
     /// <typeparam name="T">The element type.</typeparam>
     [RegisterCopier]
-    public sealed class ImmutableArrayCopier<T> : IDeepCopier<ImmutableArray<T>>
+    public sealed class ImmutableArrayCopier<T> : IDeepCopier<ImmutableArray<T>>, IOptionalDeepCopier
     {
+        private readonly IDeepCopier<T> _copier;
+
+        public ImmutableArrayCopier(IDeepCopier<T> copier) => _copier = OrleansGeneratedCodeHelper.GetOptionalCopier(copier);
+
+        public bool IsShallowCopyable() => _copier is null;
+
+        object IDeepCopier.DeepCopy(object input, CopyContext context)
+        {
+            if (_copier is null)
+                return input;
+
+            var array = (ImmutableArray<T>)input;
+            return array.IsDefaultOrEmpty ? input : DeepCopy(array, context);
+        }
+
         /// <inheritdoc/>
-        public ImmutableArray<T> DeepCopy(ImmutableArray<T> input, CopyContext context) => input;
+        public ImmutableArray<T> DeepCopy(ImmutableArray<T> input, CopyContext context)
+            => _copier is null || input.IsDefaultOrEmpty ? input : ImmutableArray.CreateRange(input, (i, s) => s._copier.DeepCopy(i, s.context), (_copier, context));
     }
 }

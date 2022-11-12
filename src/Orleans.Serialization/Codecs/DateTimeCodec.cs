@@ -1,7 +1,6 @@
 using System;
 using System.Buffers;
 using Orleans.Serialization.Buffers;
-using Orleans.Serialization.Cloning;
 using Orleans.Serialization.WireProtocol;
 
 namespace Orleans.Serialization.Codecs
@@ -35,25 +34,8 @@ namespace Orleans.Serialization.Codecs
         public static DateTime ReadValue<TInput>(ref Reader<TInput> reader, Field field)
         {
             ReferenceCodec.MarkValueField(reader.Session);
-            if (field.WireType != WireType.Fixed64)
-            {
-                ThrowUnsupportedWireTypeException(field);
-            }
-
+            field.EnsureWireType(WireType.Fixed64);
             return DateTime.FromBinary(reader.ReadInt64());
         }
-
-        private static void ThrowUnsupportedWireTypeException(Field field) => throw new UnsupportedWireTypeException(
-            $"Only a {nameof(WireType)} value of {WireType.Fixed64} is supported for {nameof(DateTime)} fields. {field}");
-    }
-
-    /// <summary>
-    /// Copier for <see cref="DateTime"/>.
-    /// </summary>
-    [RegisterCopier]
-    public sealed class DateTimeCopier : IDeepCopier<DateTime>
-    {
-        /// <inheritdoc/>
-        public DateTime DeepCopy(DateTime input, CopyContext _) => input;
     }
 }

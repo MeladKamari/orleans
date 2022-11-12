@@ -109,23 +109,13 @@ namespace Orleans.Runtime
         public override void ConvertToSurrogate(IAddressable value, ref GrainReferenceSurrogate surrogate)
         {
             var refValue = value.AsReference();
-            surrogate = new GrainReferenceSurrogate
-            {
-                GrainId = refValue.GrainId,
-                GrainInterfaceType = refValue.InterfaceType
-            };
+            surrogate.GrainId = refValue.GrainId;
+            surrogate.GrainInterfaceType = refValue.InterfaceType;
         }
     }
 
-    /// <summary>
-    /// Copier implementation for <see cref="GrainReference"/> and derived classes.
-    /// </summary>
     [RegisterCopier]
-    internal class GrainReferenceCopier : IDeepCopier<GrainReference>, IDerivedTypeCopier
-    {
-        /// <inheritdoc/>
-        public GrainReference DeepCopy(GrainReference input, CopyContext context) => input;
-    }
+    internal sealed class GrainReferenceCopier : ShallowCopier<GrainReference>, IDerivedTypeCopier { }
 
     /// <summary>
     /// Provides specialized copier instances for grain reference types.
@@ -227,11 +217,8 @@ namespace Orleans.Runtime
                 refValue = (GrainReference)(object)value.AsReference<T>();
             }
 
-            surrogate = new GrainReferenceSurrogate
-            {
-                GrainId = refValue.GrainId,
-                GrainInterfaceType = refValue.InterfaceType
-            };
+            surrogate.GrainId = refValue.GrainId;
+            surrogate.GrainInterfaceType = refValue.InterfaceType;
         }
     }
 
@@ -244,19 +231,20 @@ namespace Orleans.Runtime
         /// <summary>
         /// Gets or sets the grain id.
         /// </summary>
-        [Id(1)]
+        [Id(0)]
         public GrainId GrainId;
 
         /// <summary>
         /// Gets or sets the grain interface type.
         /// </summary>
-        [Id(2)]
+        [Id(1)]
         public GrainInterfaceType GrainInterfaceType;
     }
 
     /// <summary>
     /// This is the base class for all grain references.
     /// </summary>
+    [Alias("GrainRef")]
     [DefaultInvokableBaseType(typeof(ValueTask<>), typeof(Request<>))]
     [DefaultInvokableBaseType(typeof(ValueTask), typeof(Request))]
     [DefaultInvokableBaseType(typeof(Task<>), typeof(TaskRequest<>))]
@@ -441,7 +429,7 @@ namespace Orleans.Runtime
     /// Base type used for method requests.
     /// </summary>
     [SuppressReferenceTracking]
-    [GenerateSerializer]
+    [SerializerTransparent]
     public abstract class RequestBase : IInvokable
     {
         /// <summary>
@@ -538,7 +526,7 @@ namespace Orleans.Runtime
     /// <summary>
     /// Base class for requests for methods which return <see cref="ValueTask"/>.
     /// </summary>
-    [GenerateSerializer]
+    [SerializerTransparent]
     public abstract class Request : RequestBase 
     {
         [DebuggerHidden]
@@ -586,7 +574,7 @@ namespace Orleans.Runtime
     /// <typeparam name="TResult">
     /// The underlying result type.
     /// </typeparam>
-    [GenerateSerializer]
+    [SerializerTransparent]
     public abstract class Request<TResult> : RequestBase
     {
         /// <inheritdoc/>
@@ -637,7 +625,7 @@ namespace Orleans.Runtime
     /// <typeparam name="TResult">
     /// The underlying result type.
     /// </typeparam>
-    [GenerateSerializer]
+    [SerializerTransparent]
     public abstract class TaskRequest<TResult> : RequestBase
     {
         /// <inheritdoc/>
@@ -686,7 +674,7 @@ namespace Orleans.Runtime
     /// <summary>
     /// Base class for requests for methods which return <see cref="ValueTask"/>.
     /// </summary>
-    [GenerateSerializer]
+    [SerializerTransparent]
     public abstract class TaskRequest : RequestBase
     {
         /// <inheritdoc/>
@@ -736,7 +724,7 @@ namespace Orleans.Runtime
     /// <summary>
     /// Base class for requests for void-returning methods.
     /// </summary>
-    [GenerateSerializer]
+    [SerializerTransparent]
     public abstract class VoidRequest : RequestBase
     {
         /// <inheritdoc/>

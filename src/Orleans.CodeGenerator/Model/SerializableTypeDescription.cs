@@ -12,12 +12,13 @@ namespace Orleans.CodeGenerator
     {
         private readonly LibraryTypes _libraryTypes;
         private TypeSyntax _typeSyntax;
+        private INamedTypeSymbol _baseType;
         private TypeSyntax _baseTypeSyntax;
 
-        public SerializableTypeDescription(SemanticModel semanticModel, INamedTypeSymbol type, bool supportsPrimaryContstructorParameters, IEnumerable<IMemberDescription> members, LibraryTypes libraryTypes)
+        public SerializableTypeDescription(SemanticModel semanticModel, INamedTypeSymbol type, bool supportsPrimaryConstructorParameters, IEnumerable<IMemberDescription> members, LibraryTypes libraryTypes)
         {
             Type = type;
-            SupportsPrimaryContstructorParameters = supportsPrimaryContstructorParameters;
+            SupportsPrimaryConstructorParameters = supportsPrimaryConstructorParameters;
             Members = members.ToList();
             SemanticModel = semanticModel;
             _libraryTypes = libraryTypes;
@@ -111,13 +112,19 @@ namespace Orleans.CodeGenerator
 
         public TypeSyntax BaseTypeSyntax => _baseTypeSyntax ??= BaseType.ToTypeSyntax();
 
-        public bool HasComplexBaseType => !IsValueType &&
-                                          Type.BaseType != null &&
-                                          Type.BaseType.SpecialType != SpecialType.System_Object;
+        public bool HasComplexBaseType => !IsValueType && BaseType is { SpecialType: not SpecialType.System_Object };
 
-        public bool SupportsPrimaryContstructorParameters { get; }
+        public bool SupportsPrimaryConstructorParameters { get; }
 
-        public INamedTypeSymbol BaseType => Type.EnumUnderlyingType ?? Type.BaseType;
+        public INamedTypeSymbol BaseType => _baseType ??= GetEffectiveBaseType();
+
+        private INamedTypeSymbol GetEffectiveBaseType()
+        {
+            var type = Type.EnumUnderlyingType ?? Type.BaseType;
+            while (type != null && type.HasAttribute(_libraryTypes.SerializerTransparentAttribute))
+                type = type.BaseType;
+            return type;
+        }
 
         public string Namespace => Type.GetNamespaceAndNesting();
 
@@ -131,6 +138,7 @@ namespace Orleans.CodeGenerator
 
         public bool IsValueType => Type.IsValueType;
         public bool IsSealedType => Type.IsSealed;
+        public bool IsAbstractType => Type.IsAbstract;
         public bool IsEnumType => Type.EnumUnderlyingType != null;
 
         public bool IsGenericType => Type.IsGenericType;
@@ -170,23 +178,6 @@ namespace Orleans.CodeGenerator
 
         public bool HasActivatorConstructor { get; }
 
-        public bool IsPartial
-        {
-            get
-            {
-                foreach (var reference in Type.DeclaringSyntaxReferences)
-                {
-                    var syntax = reference.GetSyntax();
-                    if (syntax is TypeDeclarationSyntax typeDeclaration && typeDeclaration.Modifiers.Any(Microsoft.CodeAnalysis.CSharp.SyntaxKind.PartialKeyword))
-                    {
-                        return true;
-                    }
-                }
-
-                return false;
-            }
-        }
-
         public bool UseActivator => Type.HasAttribute(_libraryTypes.UseActivatorAttribute) || !IsEmptyConstructable || HasActivatorConstructor;
 
         public bool TrackReferences => !IsValueType && !Type.HasAttribute(_libraryTypes.SuppressReferenceTrackingAttribute);
@@ -195,6 +186,12 @@ namespace Orleans.CodeGenerator
         public List<INamedTypeSymbol> SerializationHooks { get; }
 
         public bool IsShallowCopyable => IsEnumType || !Type.HasBaseType(_libraryTypes.Exception) && _libraryTypes.IsShallowCopyable(Type);
+
+        public bool IsUnsealedImmutable => !Type.IsSealed && IsImmutable;
+
+        public bool IsImmutable => Type.HasAnyAttribute(_libraryTypes.ImmutableAttributes);
+
+        public bool IsExceptionType => Type.HasBaseType(_libraryTypes.Exception);
 
         public ExpressionSyntax GetObjectCreationExpression(LibraryTypes libraryTypes)
         {
@@ -223,7 +220,7 @@ namespace Orleans.CodeGenerator
 
             if (isConstructible)
             {
-                return ObjectCreationExpression(TypeSyntax).WithArgumentList(ArgumentList());
+                return ObjectCreationExpression(TypeSyntax, ArgumentList(), null);
             }
             else
             {

@@ -1,4 +1,10 @@
-using Microsoft.Extensions.DependencyInjection;
+using System;
+using System.Buffers;
+using System.Collections;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Runtime.ExceptionServices;
+using System.Runtime.Serialization;
 using Microsoft.Extensions.Options;
 using Orleans.Serialization.Buffers;
 using Orleans.Serialization.Cloning;
@@ -7,13 +13,6 @@ using Orleans.Serialization.GeneratedCodeHelpers;
 using Orleans.Serialization.Serializers;
 using Orleans.Serialization.TypeSystem;
 using Orleans.Serialization.WireProtocol;
-using System;
-using System.Buffers;
-using System.Collections;
-using System.Collections.Generic;
-using System.Collections.ObjectModel;
-using System.Runtime.ExceptionServices;
-using System.Runtime.Serialization;
 
 namespace Orleans.Serialization
 {
@@ -22,14 +21,12 @@ namespace Orleans.Serialization
     /// </summary>
     [RegisterSerializer]
     [RegisterCopier]
-    [WellKnownAlias("Exception")]
-    internal class ExceptionCodec : IFieldCodec<Exception>, IBaseCodec<Exception>, IGeneralizedCodec, IGeneralizedBaseCodec, IBaseCopier<Exception>
+    [Alias("Exception")]
+    public sealed class ExceptionCodec : IFieldCodec<Exception>, IBaseCodec<Exception>, IGeneralizedCodec, IGeneralizedBaseCodec, IBaseCopier<Exception>
     {
         private readonly StreamingContext _streamingContext;
         private readonly FormatterConverter _formatterConverter;
-        private readonly Func<Type, Action<object, SerializationInfo, StreamingContext>> _createConstructorDelegate;
         private readonly Action<object, SerializationInfo, StreamingContext> _baseExceptionConstructor;
-        private readonly IServiceProvider _serviceProvider;
         private readonly TypeConverter _typeConverter;
         private readonly IFieldCodec<Dictionary<object, object>> _dictionaryCodec;
         private readonly IDeepCopier<Dictionary<object, object>> _dictionaryCopier;
@@ -39,14 +36,12 @@ namespace Orleans.Serialization
         /// <summary>
         /// Initializes a new instance of the <see cref="ExceptionCodec"/> class.
         /// </summary>
-        /// <param name="serviceProvider">The service provider.</param>
         /// <param name="typeConverter">The type converter.</param>
         /// <param name="dictionaryCodec">The dictionary codec.</param>
         /// <param name="dictionaryCopier">The dictionary copier.</param>
         /// <param name="exceptionCopier">The exception copier.</param>
         /// <param name="exceptionSerializationOptions">The exception serialization options.</param>
         public ExceptionCodec(
-            IServiceProvider serviceProvider,
             TypeConverter typeConverter,
             IFieldCodec<Dictionary<object, object>> dictionaryCodec,
             IDeepCopier<Dictionary<object, object>> dictionaryCopier,
@@ -55,10 +50,7 @@ namespace Orleans.Serialization
         {
             _streamingContext = new StreamingContext(StreamingContextStates.All);
             _formatterConverter = new FormatterConverter();
-            var constructorFactory = new SerializationConstructorFactory();
-            _createConstructorDelegate = constructorFactory.GetSerializationConstructorDelegate;
-            _baseExceptionConstructor = _createConstructorDelegate(typeof(Exception));
-            _serviceProvider = serviceProvider;
+            _baseExceptionConstructor = new SerializationConstructorFactory().GetSerializationConstructorDelegate(typeof(Exception));
             _typeConverter = typeConverter;
             _dictionaryCodec = dictionaryCodec;
             _dictionaryCopier = dictionaryCopier;
@@ -223,7 +215,7 @@ namespace Orleans.Serialization
         {
             if (value is null)
             {
-                ReferenceCodec.WriteNullReference(ref writer, fieldIdDelta, expectedType);
+                ReferenceCodec.WriteNullReference(ref writer, fieldIdDelta);
                 return;
             }
 
@@ -237,7 +229,7 @@ namespace Orleans.Serialization
             }
             else
             {
-                OrleansGeneratedCodeHelper.SerializeUnexpectedType(ref writer, fieldIdDelta, expectedType, value);
+                writer.SerializeUnexpectedType(fieldIdDelta, expectedType, value);
             }
         }
 
@@ -278,7 +270,7 @@ namespace Orleans.Serialization
         {
             if (value is null)
             {
-                ReferenceCodec.WriteNullReference(ref writer, fieldIdDelta, expectedType);
+                ReferenceCodec.WriteNullReference(ref writer, fieldIdDelta);
                 return;
             }
 
@@ -307,11 +299,11 @@ namespace Orleans.Serialization
                 return DeserializeException(ref reader, field);
             }
 
-            return OrleansGeneratedCodeHelper.DeserializeUnexpectedType<TInput, Exception>(ref reader, field);
+            return reader.DeserializeUnexpectedType<TInput, Exception>(ref field);
         }
 
         /// <inheritdoc />
-        object IFieldCodec<object>.ReadValue<TInput>(ref Reader<TInput> reader, Field field)
+        object IFieldCodec.ReadValue<TInput>(ref Reader<TInput> reader, Field field)
         {
             if (field.WireType == WireType.Reference)
             {
@@ -323,6 +315,7 @@ namespace Orleans.Serialization
                                 
         public Exception DeserializeException<TInput>(ref Reader<TInput> reader, Field field)
         {
+            field.EnsureWireTypeTagDelimited();
             ReferenceCodec.MarkValueField(reader.Session);
 
             uint fieldId = 0;
@@ -430,7 +423,7 @@ namespace Orleans.Serialization
     /// Serializer for <see cref="AggregateException"/>.
     /// </summary>
     [RegisterSerializer]
-    internal class AggregateExceptionCodec : GeneralizedReferenceTypeSurrogateCodec<AggregateException, AggregateExceptionSurrogate>
+    internal sealed class AggregateExceptionCodec : GeneralizedReferenceTypeSurrogateCodec<AggregateException, AggregateExceptionSurrogate>
     {
         private readonly ExceptionCodec _baseCodec;
 
@@ -466,10 +459,7 @@ namespace Orleans.Serialization
                 surrogate.Data = _baseCodec.GetDataProperty(value);
             }
 
-            if (value.InnerExceptions is { } iexs)
-            {
-                surrogate.InnerExceptions = value.InnerExceptions;
-            }
+            surrogate.InnerExceptions = value.InnerExceptions;
         }
     }
 
@@ -477,21 +467,21 @@ namespace Orleans.Serialization
     /// Surrogate type for <see cref="AggregateExceptionCodec"/>.
     /// </summary>
     [GenerateSerializer]
-    public struct AggregateExceptionSurrogate
-    {        
+    internal struct AggregateExceptionSurrogate
+    {
         [Id(0)]
-        public string Message { get; set; }
+        public string Message;
 
         [Id(1)]
-        public string StackTrace { get; set; }
+        public string StackTrace;
 
         [Id(2)]
-        public Dictionary<object, object> Data { get; set; }
+        public Dictionary<object, object> Data;
 
         [Id(3)]
-        public int HResult { get; set; }
+        public int HResult;
 
         [Id(4)]
-        public ReadOnlyCollection<Exception> InnerExceptions { get; set; }
+        public ReadOnlyCollection<Exception> InnerExceptions;
     }
 }

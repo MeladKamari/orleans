@@ -4,7 +4,9 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
+using System.Reflection.Metadata;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 
 namespace Orleans.Serialization.Session
 {
@@ -13,7 +15,7 @@ namespace Orleans.Serialization.Session
     /// </summary>
     public sealed class ReferencedObjectCollection
     {
-        private readonly struct ReferencePair
+        private struct ReferencePair
         {
             public ReferencePair(uint id, object @object)
             {
@@ -21,16 +23,15 @@ namespace Orleans.Serialization.Session
                 Object = @object;
             }
 
-            public uint Id { get; }
-
-            public object Object { get; }
+            public uint Id;
+            public object Object;
         }
 
         /// <summary>
         /// Gets or sets the reference to object count.
         /// </summary>
         /// <value>The reference to object count.</value>
-        public int ReferenceToObjectCount { get; set; }
+        internal int ReferenceToObjectCount;
         private readonly ReferencePair[] _referenceToObject = new ReferencePair[64];
 
         private int _objectToReferenceCount;
@@ -38,46 +39,35 @@ namespace Orleans.Serialization.Session
 
         private Dictionary<uint, object> _referenceToObjectOverflow;
         private Dictionary<object, uint> _objectToReferenceOverflow;
+        private uint _currentReferenceId;
 
         /// <summary>
         /// Tries to get the referenced object with the specified id.
         /// </summary>
         /// <param name="reference">The reference.</param>
-        /// <param name="value">The value.</param>
-        /// <returns><see langword="true" /> if there was a referenced object with the specified id, <see langword="false" /> otherwise.</returns>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public bool TryGetReferencedObject(uint reference, [NotNullWhen(true)] out object value)
+        /// <returns>The referenced object with the specified id if found, <see langword="null" /> otherwise.</returns>
+        public object TryGetReferencedObject(uint reference)
         {
-            // Reference 0 is always null.
-            if (reference == 0)
+            var refs = _referenceToObject.AsSpan(0, ReferenceToObjectCount);
+            for (int i = 0; i < refs.Length; ++i)
             {
-                value = null;
-                return true;
+                if (refs[i].Id == reference)
+                    return refs[i].Object;
             }
 
-            for (int i = 0; i < ReferenceToObjectCount; ++i)
-            {
-                if (_referenceToObject[i].Id == reference)
-                {
-                    value = _referenceToObject[i].Object;
-                    return true;
-                }
-            }
+            if (_referenceToObjectOverflow is { } overflow && overflow.TryGetValue(reference, out var value))
+                return value;
 
-            if (_referenceToObjectOverflow is { } overflow)
-            {
-                return overflow.TryGetValue(reference, out value);
-            }
-
-            value = default;
-            return false;
+            return null;
         }
 
         /// <summary>
         /// Marks a value field.
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void MarkValueField() => ++CurrentReferenceId;
+        public void MarkValueField() => ++_currentReferenceId;
+
+        internal uint CreateRecordPlaceholder() => ++_currentReferenceId;
 
         /// <summary>
         /// Gets or adds a reference.
@@ -89,7 +79,7 @@ namespace Orleans.Serialization.Session
         public bool GetOrAddReference(object value, out uint reference)
         {
             // Unconditionally bump the reference counter since a call to this method signifies a potential reference.
-            var nextReference = ++CurrentReferenceId;
+            var nextReference = ++_currentReferenceId;
 
             // Null is always at reference 0
             if (value is null)
@@ -98,32 +88,31 @@ namespace Orleans.Serialization.Session
                 return true;
             }
 
-            for (int i = 0; i < _objectToReferenceCount; ++i)
+            var objects = _objectToReference.AsSpan(0, _objectToReferenceCount);
+            for (int i = 0; i < objects.Length; ++i)
             {
-                if (ReferenceEquals(_objectToReference[i].Object, value))
+                if (objects[i].Object == value)
                 {
-                    reference = _objectToReference[i].Id;
+                    reference = objects[i].Id;
                     return true;
                 }
             }
 
             if (_objectToReferenceOverflow is { } overflow)
             {
-                if (overflow.TryGetValue(value, out var existing))
+                ref var refValue = ref CollectionsMarshal.GetValueRefOrAddDefault(overflow, value, out var exists);
+                if (exists)
                 {
-                    reference = existing;
+                    reference = refValue;
                     return true;
                 }
-                else
-                {
-                    reference = nextReference;
-                    overflow[value] = reference;
-                }
+
+                refValue = reference = nextReference;
+                return false;
             }
 
             // Add the reference.
-            reference = nextReference;
-            AddToReferenceToIdMap(value, reference);
+            AddToReferenceToIdMap(value, reference = nextReference);
             return false;
         }
 
@@ -140,9 +129,10 @@ namespace Orleans.Serialization.Session
                 return -1;
             }
 
-            for (var i = 0; i < ReferenceToObjectCount; ++i)
+            var refs = _referenceToObject.AsSpan(0, ReferenceToObjectCount);
+            for (int i = 0; i < refs.Length; ++i)
             {
-                if (ReferenceEquals(_referenceToObject[i].Object, value))
+                if (refs[i].Object == value)
                 {
                     return i;
                 }
@@ -151,32 +141,25 @@ namespace Orleans.Serialization.Session
             return -1;
         }
 
-
         private void AddToReferenceToIdMap(object value, uint reference)
         {
-            if (_objectToReferenceOverflow is { } overflow)
-            {
-                overflow[value] = reference;
-            }
-            else
-            {
-                _objectToReference[_objectToReferenceCount++] = new ReferencePair(reference, value);
+            _objectToReference[_objectToReferenceCount++] = new ReferencePair(reference, value);
 
-                if (_objectToReferenceCount >= _objectToReference.Length)
-                {
-                    CreateObjectToReferenceOverflow();
-                }
+            if (_objectToReferenceCount >= _objectToReference.Length)
+            {
+                CreateObjectToReferenceOverflow();
             }
 
             [MethodImpl(MethodImplOptions.NoInlining)]
             void CreateObjectToReferenceOverflow()
             {
                 var result = new Dictionary<object, uint>(_objectToReferenceCount * 2, ReferenceEqualsComparer.Default);
-                for (var i = 0; i < _objectToReferenceCount; i++)
+                var objects = _objectToReference.AsSpan(0, _objectToReferenceCount);
+                for (var i = 0; i < objects.Length; i++)
                 {
-                    var record = _objectToReference[i];
+                    var record = objects[i];
                     result[record.Object] = record.Id;
-                    _objectToReference[i] = default;
+                    objects[i] = default;
                 }
 
                 _objectToReferenceCount = 0;
@@ -186,18 +169,34 @@ namespace Orleans.Serialization.Session
 
         private void AddToReferences(object value, uint reference)
         {
-            if (TryGetReferencedObject(reference, out var existing) && !(existing is UnknownFieldMarker) && !(value is UnknownFieldMarker))
-            {
-                // Unknown field markers can be replaced once the type is known.
-                ThrowReferenceExistsException(reference);
-            }
-
             if (_referenceToObjectOverflow is { } overflow)
             {
-                overflow[reference] = value;
+                ref var refValue = ref CollectionsMarshal.GetValueRefOrAddDefault(overflow, reference, out var exists);
+                if (exists && value is not UnknownFieldMarker && refValue is not UnknownFieldMarker)
+                {
+                    // Unknown field markers can be replaced once the type is known.
+                    ThrowReferenceExistsException(reference);
+                }
+
+                refValue = value;
             }
             else
             {
+                var refs = _referenceToObject.AsSpan(0, ReferenceToObjectCount);
+                for (var i = 0; i < refs.Length; i++)
+                {
+                    if (refs[i].Id == reference)
+                    {
+                        if (value is not UnknownFieldMarker && refs[i].Object is not UnknownFieldMarker)
+                        {
+                            // Unknown field markers can be replaced once the type is known.
+                            ThrowReferenceExistsException(reference);
+                        }
+                        refs[i].Object = value;
+                        return;
+                    }
+                }
+
                 _referenceToObject[ReferenceToObjectCount++] = new ReferencePair(reference, value);
 
                 if (ReferenceToObjectCount >= _referenceToObject.Length)
@@ -209,12 +208,13 @@ namespace Orleans.Serialization.Session
             [MethodImpl(MethodImplOptions.NoInlining)]
             void CreateReferenceToObjectOverflow()
             {
-                var result = new Dictionary<uint, object>();
-                for (var i = 0; i < ReferenceToObjectCount; i++)
+                var result = new Dictionary<uint, object>(ReferenceToObjectCount * 2);
+                var refs = _referenceToObject.AsSpan(0, ReferenceToObjectCount);
+                for (var i = 0; i < refs.Length; i++)
                 {
-                    var record = _referenceToObject[i];
+                    var record = refs[i];
                     result[record.Id] = record.Object;
-                    _referenceToObject[i] = default;
+                    refs[i] = default;
                 }
 
                 ReferenceToObjectCount = 0;
@@ -229,7 +229,7 @@ namespace Orleans.Serialization.Session
         /// </summary>
         /// <param name="value">The value.</param>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void RecordReferenceField(object value) => RecordReferenceField(value, ++CurrentReferenceId);
+        public void RecordReferenceField(object value) => RecordReferenceField(value, ++_currentReferenceId);
 
         /// <summary>
         /// Records a reference field with the specified identifier.
@@ -263,7 +263,7 @@ namespace Orleans.Serialization.Session
         /// Gets or sets the current reference identifier.
         /// </summary>
         /// <value>The current reference identifier.</value>
-        public uint CurrentReferenceId { get; set; }
+        public uint CurrentReferenceId { get => _currentReferenceId; set => _currentReferenceId = value; }
 
         /// <summary>
         /// Resets this instance.
@@ -271,17 +271,8 @@ namespace Orleans.Serialization.Session
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Reset()
         {
-            var refToObj = _referenceToObject.AsSpan(0, Math.Min(_referenceToObject.Length, ReferenceToObjectCount));
-            for (var i = 0; i < refToObj.Length; i++)
-            {
-                refToObj[i] = default;
-            }
-
-            var objToRef = _objectToReference.AsSpan(0, Math.Min(_objectToReference.Length, _objectToReferenceCount));
-            for (var i = 0; i < objToRef.Length; i++)
-            {
-                objToRef[i] = default;
-            }
+            _referenceToObject.AsSpan(0, ReferenceToObjectCount).Clear();
+            _objectToReference.AsSpan(0, _objectToReferenceCount).Clear();
 
             ReferenceToObjectCount = 0;
             _objectToReferenceCount = 0;

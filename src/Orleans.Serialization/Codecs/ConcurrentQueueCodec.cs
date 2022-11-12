@@ -21,34 +21,10 @@ namespace Orleans.Serialization.Codecs
         }
         
         /// <inheritdoc/>
-        public override ConcurrentQueue<T> ConvertFromSurrogate(ref ConcurrentQueueSurrogate<T> surrogate)
-        {
-            if (surrogate.Values is null)
-            {
-                return null;
-            }
-            else
-            {
-                return new ConcurrentQueue<T>(surrogate.Values);
-            }
-        }
+        public override ConcurrentQueue<T> ConvertFromSurrogate(ref ConcurrentQueueSurrogate<T> surrogate) => new(surrogate.Values);
 
         /// <inheritdoc/>
-        public override void ConvertToSurrogate(ConcurrentQueue<T> value, ref ConcurrentQueueSurrogate<T> surrogate)
-        {
-            if (value is null)
-            {
-                surrogate = default;
-                return;
-            }
-            else
-            {
-                surrogate = new ConcurrentQueueSurrogate<T>
-                {
-                    Values = new Queue<T>(value)
-                };
-            }
-        }
+        public override void ConvertToSurrogate(ConcurrentQueue<T> value, ref ConcurrentQueueSurrogate<T> surrogate) => surrogate.Values = new(value);
     }
 
     /// <summary>
@@ -62,8 +38,8 @@ namespace Orleans.Serialization.Codecs
         /// Gets or sets the values.
         /// </summary>
         /// <value>The values.</value>
-        [Id(1)]
-        public Queue<T> Values { get; set; }
+        [Id(0)]
+        public Queue<T> Values;
     }
 
     /// <summary>
@@ -97,7 +73,6 @@ namespace Orleans.Serialization.Codecs
                 return context.DeepCopy(input);
             }
 
-            // Note that this cannot propagate the input's key comparer, since it is not exposed from ConcurrentDictionary.
             result = new ConcurrentQueue<T>();
             context.RecordCopy(input, result);
             foreach (var item in input)

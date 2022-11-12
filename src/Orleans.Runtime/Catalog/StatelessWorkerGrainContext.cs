@@ -11,10 +11,10 @@ namespace Orleans.Runtime
     internal class StatelessWorkerGrainContext : IGrainContext, IAsyncDisposable, IActivationLifecycleObserver
     {
         private readonly GrainAddress _address;
-        private readonly GrainTypeSharedContext _sharedContext;
+        private readonly GrainTypeSharedContext _shared;
         private readonly IGrainContextActivator _innerActivator;
         private readonly int _maxWorkers;
-        private readonly List<IGrainContext> _workers = new();
+        private readonly List<ActivationData> _workers = new();
         private readonly ConcurrentQueue<(WorkItemType Type, object State)> _workItems = new();
         private readonly SingleWaiterAutoResetEvent _workSignal = new() { RunContinuationsAsynchronously = false };
 
@@ -27,8 +27,7 @@ namespace Orleans.Runtime
 #pragma warning disable IDE0052 // Remove unread private members
         private readonly Task _messageLoopTask;
 #pragma warning restore IDE0052 // Remove unread private members
-
-        private int _nextWorker;
+        
         private GrainReference _grainReference;
 
         public StatelessWorkerGrainContext(
@@ -37,15 +36,14 @@ namespace Orleans.Runtime
             IGrainContextActivator innerActivator)
         {
             _address = address;
-            _sharedContext = sharedContext;
+            _shared = sharedContext;
             _innerActivator = innerActivator;
-            _maxWorkers = ((StatelessWorkerPlacement)_sharedContext.PlacementStrategy).MaxLocal;
+            _maxWorkers = ((StatelessWorkerPlacement)_shared.PlacementStrategy).MaxLocal;
             _messageLoopTask = Task.Run(RunMessageLoop);
-            _sharedContext.OnCreateActivation(this);
-
+            _shared.OnCreateActivation(this);
         }
 
-        public GrainReference GrainReference => _grainReference ??= _sharedContext.GrainReferenceActivator.CreateReference(GrainId, default);
+        public GrainReference GrainReference => _grainReference ??= _shared.GrainReferenceActivator.CreateReference(GrainId, default);
 
         public GrainId GrainId => _address.GrainId;
 
@@ -61,7 +59,7 @@ namespace Orleans.Runtime
 
         public IWorkItemScheduler Scheduler => throw new NotImplementedException();
 
-        public PlacementStrategy PlacementStrategy => _sharedContext.PlacementStrategy;
+        public PlacementStrategy PlacementStrategy => _shared.PlacementStrategy;
 
         public Task Deactivated
         {
@@ -101,14 +99,21 @@ namespace Orleans.Runtime
             }
             finally
             {
-                _sharedContext.OnDestroyActivation(this);
+                _shared.OnDestroyActivation(this);
             }
         }
 
         public bool Equals([AllowNull] IGrainContext other) => other is not null && ActivationId.Equals(other.ActivationId);
-        public TComponent GetComponent<TComponent>() => throw new NotImplementedException();
-        public void SetComponent<TComponent>(TComponent value) => throw new NotImplementedException();
-        public TTarget GetTarget<TTarget>() => throw new NotImplementedException();
+
+        public TComponent GetComponent<TComponent>() where TComponent : class => this switch
+        {
+            TComponent contextResult => contextResult,
+            _ => _shared.GetComponent<TComponent>()
+        };
+
+        public void SetComponent<TComponent>(TComponent instance) where TComponent : class => throw new ArgumentException($"Cannot set a component on a {nameof(StatelessWorkerGrainContext)}");
+
+        public TTarget GetTarget<TTarget>() where TTarget : class => throw new NotImplementedException();
 
         private async Task RunMessageLoop()
         {
@@ -149,7 +154,7 @@ namespace Orleans.Runtime
                                 }
                             case WorkItemType.OnDestroyActivation:
                                 {
-                                    var grainContext = (IGrainContext)workItem.State;
+                                    var grainContext = (ActivationData)workItem.State;
                                     _workers.Remove(grainContext);
                                     break;
                                 }
@@ -161,7 +166,7 @@ namespace Orleans.Runtime
                 }
                 catch (Exception exception)
                 {
-                    _sharedContext.Logger.LogError(exception, "Error in stateless worker message loop");
+                    _shared.Logger.LogError(exception, "Error in stateless worker message loop");
                 }
             }
         }
@@ -170,34 +175,81 @@ namespace Orleans.Runtime
         {
             try
             {
-                if (_workers.Count < _maxWorkers)
+                ActivationData worker = null;
+                ActivationData minimumWaitingCountWorker = null;
+                var minimumWaitingCount = int.MaxValue;
+
+                // Make sure there is at least one worker
+                if (_workers.Count == 0)
                 {
-                    // Create a new worker
-                    var address = GrainAddress.GetAddress(_address.SiloAddress, _address.GrainId, ActivationId.NewId());
-                    var newWorker = _innerActivator.CreateContext(address);
+                    worker = CreateWorker(message);
+                }
+                else
+                {
+                    // Check to see if we have any inactive workers, prioritizing
+                    // them in the order they were created to minimize the number
+                    // of workers spawned
+                    for (var i = 0; i < _workers.Count; i++)
+                    {
+                        if (_workers[i].IsInactive)
+                        {
+                            worker = _workers[i];
+                            break;
+                        }
+                        else
+                        {
+                            // Track the worker with the lowest value for WaitingCount,
+                            // this is used if all workers are busy
+                            if (_workers[i].WaitingCount < minimumWaitingCount)
+                            {
+                                minimumWaitingCount = _workers[i].WaitingCount;
+                                minimumWaitingCountWorker = _workers[i];
+                            }
+                        }
+                    }
 
-                    // Observe the create/destroy lifecycle of the activation
-                    newWorker.SetComponent<IActivationLifecycleObserver>(this);
-
-                    // If this is a new worker and there is a message in scope, try to get the request context and activate the worker
-                    var requestContext = (message as Message)?.RequestContextData ?? new Dictionary<string, object>();
-                    var cancellation = new CancellationTokenSource(_sharedContext.InternalRuntime.CollectionOptions.Value.ActivationTimeout);
-                    newWorker.Activate(requestContext, cancellation.Token);
-
-                    _workers.Add(newWorker);
+                    if (worker == null)
+                    {
+                        // There are no inactive workers, can we make more of them?
+                        if (_workers.Count < _maxWorkers)
+                        {
+                            worker = CreateWorker(message);
+                        }
+                        else
+                        {
+                            // Pick the one with the lowest waiting count
+                            worker = minimumWaitingCountWorker;
+                        }
+                    }
                 }
 
-                var worker = _workers[Math.Abs(_nextWorker++) % _workers.Count];
                 worker.ReceiveMessage(message);
             }
             catch (Exception exception) when (message is Message msg)
             {
-                _sharedContext.InternalRuntime.MessageCenter.RejectMessage(
+                _shared.InternalRuntime.MessageCenter.RejectMessage(
                     msg,
                     Message.RejectionTypes.Transient,
                     exception,
                     "Exception while creating grain context");
             }
+        }
+
+        private ActivationData CreateWorker(object message)
+        {
+            var address = GrainAddress.GetAddress(_address.SiloAddress, _address.GrainId, ActivationId.NewId());
+            var newWorker = (ActivationData)_innerActivator.CreateContext(address);
+
+            // Observe the create/destroy lifecycle of the activation
+            newWorker.SetComponent<IActivationLifecycleObserver>(this);
+
+            // If this is a new worker and there is a message in scope, try to get the request context and activate the worker
+            var requestContext = (message as Message)?.RequestContextData ?? new Dictionary<string, object>();
+            var cancellation = new CancellationTokenSource(_shared.InternalRuntime.CollectionOptions.Value.ActivationTimeout);
+            newWorker.Activate(requestContext, cancellation.Token);
+
+            _workers.Add(newWorker);
+            return newWorker;
         }
 
         private void ActivateInternal(Dictionary<string, object> requestContext, CancellationToken? cancellationToken)
@@ -245,10 +297,6 @@ namespace Orleans.Runtime
                         {
                             tasks.Add(disposable.DisposeAsync().AsTask());
                         }
-                        else if (worker is IDisposable syncDisposable)
-                        {
-                            syncDisposable.Dispose();
-                        }
                     }
                     catch (Exception exception)
                     {
@@ -275,7 +323,7 @@ namespace Orleans.Runtime
             _workSignal.Signal();
             if (_workers.Count == 0)
             {
-                _sharedContext.InternalRuntime.Catalog.UnregisterMessageTarget(this);
+                _shared.InternalRuntime.Catalog.UnregisterMessageTarget(this);
             }
         }
 

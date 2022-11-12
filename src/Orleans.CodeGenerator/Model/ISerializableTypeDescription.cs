@@ -9,7 +9,7 @@ namespace Orleans.CodeGenerator
         Accessibility Accessibility { get; }
         TypeSyntax TypeSyntax { get; }
         bool HasComplexBaseType { get; }
-        bool SupportsPrimaryContstructorParameters { get; }
+        bool SupportsPrimaryConstructorParameters { get; }
         INamedTypeSymbol BaseType { get; }
         TypeSyntax BaseTypeSyntax { get; }
         string Namespace { get; }
@@ -17,6 +17,7 @@ namespace Orleans.CodeGenerator
         string Name { get; }
         bool IsValueType { get; }
         bool IsSealedType { get; }
+        bool IsAbstractType { get; }
         bool IsEnumType { get; }
         bool IsGenericType { get; }
         List<(string Name, ITypeParameterSymbol Parameter)> TypeParameters { get; }
@@ -25,12 +26,14 @@ namespace Orleans.CodeGenerator
         bool UseActivator { get; }
         bool IsEmptyConstructable { get; }
         bool HasActivatorConstructor { get; }
-        bool IsPartial { get; }
         bool TrackReferences { get; }
         bool OmitDefaultMemberValues { get; }
         ExpressionSyntax GetObjectCreationExpression(LibraryTypes libraryTypes);
         List<INamedTypeSymbol> SerializationHooks { get; }
         bool IsShallowCopyable { get; }
+        bool IsUnsealedImmutable { get; }
+        bool IsImmutable { get; }
+        bool IsExceptionType { get; }
         List<TypeSyntax> ActivatorConstructorParameters { get; }
     }
 }

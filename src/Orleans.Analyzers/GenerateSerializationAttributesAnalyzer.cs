@@ -16,7 +16,7 @@ namespace Orleans.Analyzers
         private static readonly LocalizableString MessageFormat = new LocalizableResourceString(nameof(Resources.AddSerializationAttributesMessageFormat), Resources.ResourceManager, typeof(Resources));
         private static readonly LocalizableString Description = new LocalizableResourceString(nameof(Resources.AddSerializationAttributesDescription), Resources.ResourceManager, typeof(Resources));
 
-        internal static DiagnosticDescriptor Rule { get; } = new(RuleId, Title, MessageFormat, Category, DiagnosticSeverity.Info, isEnabledByDefault: true, description: Description);
+        private static readonly DiagnosticDescriptor Rule = new DiagnosticDescriptor(RuleId, Title, MessageFormat, Category, DiagnosticSeverity.Info, isEnabledByDefault: true, description: Description);
 
         public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics => ImmutableArray.Create(Rule);
 
@@ -24,7 +24,7 @@ namespace Orleans.Analyzers
         {
             context.EnableConcurrentExecution();
             context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.Analyze);
-            context.RegisterSyntaxNodeAction(CheckSyntaxNode, SyntaxKind.ClassDeclaration, SyntaxKind.StructDeclaration);
+            context.RegisterSyntaxNodeAction(CheckSyntaxNode, SyntaxKind.ClassDeclaration, SyntaxKind.StructDeclaration, SyntaxKind.RecordDeclaration, SyntaxKind.RecordStructDeclaration);
         }
 
         private void CheckSyntaxNode(SyntaxNodeAnalysisContext context)
@@ -33,8 +33,8 @@ namespace Orleans.Analyzers
             {
                 if (declaration.TryGetAttribute(Constants.GenerateSerializerAttributeName, out var attribute))
                 {
-                    var (serializableMembers, _, nextId) = SerializationAttributesHelper.AnalyzeTypeDeclaration(declaration);
-                    if (serializableMembers.Count > 0)
+                    var analysis = SerializationAttributesHelper.AnalyzeTypeDeclaration(declaration);
+                    if (analysis.UnannotatedMembers.Count > 0)
                     {
                         context.ReportDiagnostic(Diagnostic.Create(Rule, attribute.GetLocation()));
                     }

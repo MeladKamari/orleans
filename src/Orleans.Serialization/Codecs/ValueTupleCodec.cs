@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using Orleans.Serialization.Buffers;
 using Orleans.Serialization.Cloning;
 using Orleans.Serialization.GeneratedCodeHelpers;
@@ -13,7 +14,7 @@ namespace Orleans.Serialization.Codecs
     public sealed class ValueTupleCodec : IFieldCodec<ValueTuple>
     {
         /// <inheritdoc />
-        void IFieldCodec<ValueTuple>.WriteField<TBufferWriter>(ref Writer<TBufferWriter> writer, uint fieldIdDelta, Type expectedType, ValueTuple value)
+        public void WriteField<TBufferWriter>(ref Writer<TBufferWriter> writer, uint fieldIdDelta, Type expectedType, ValueTuple value) where TBufferWriter : IBufferWriter<byte>
         {
             ReferenceCodec.MarkValueField(writer.Session);
             writer.WriteFieldHeader(fieldIdDelta, expectedType, value.GetType(), WireType.VarInt);
@@ -21,30 +22,15 @@ namespace Orleans.Serialization.Codecs
         }
 
         /// <inheritdoc />
-        ValueTuple IFieldCodec<ValueTuple>.ReadValue<TInput>(ref Reader<TInput> reader, Field field)
+        public ValueTuple ReadValue<TInput>(ref Reader<TInput> reader, Field field)
         {
-            if (field.WireType != WireType.VarInt)
-            {
-                ThrowUnsupportedWireTypeException();
-            }
+            field.EnsureWireType(WireType.VarInt);
 
             ReferenceCodec.MarkValueField(reader.Session);
             _ = reader.ReadVarUInt64();
 
             return default;
         }
-
-        internal static void ThrowUnsupportedWireTypeException() => throw new UnsupportedWireTypeException(
-            $"Only a {nameof(WireType)} value of {WireType.TagDelimited} is supported for tuple fields.");
-    }
-
-    /// <summary>
-    /// Copier for <see cref="ValueTuple"/>.
-    /// </summary>
-    [RegisterCopier]
-    public class ValueTupleCopier : IDeepCopier<ValueTuple>
-    {
-        public ValueTuple DeepCopy(ValueTuple input, CopyContext _) => input;
     }
 
     /// <summary>
@@ -54,7 +40,7 @@ namespace Orleans.Serialization.Codecs
     [RegisterSerializer]
     public sealed class ValueTupleCodec<T> : IFieldCodec<ValueTuple<T>>
     {
-        private static readonly Type ElementType1 = typeof(T);
+        private readonly Type ElementType1 = typeof(T);
 
         private readonly IFieldCodec<T> _valueCodec;
 
@@ -68,11 +54,11 @@ namespace Orleans.Serialization.Codecs
         }
 
         /// <inheritdoc />
-        void IFieldCodec<ValueTuple<T>>.WriteField<TBufferWriter>(
+        public void WriteField<TBufferWriter>(
             ref Writer<TBufferWriter> writer,
             uint fieldIdDelta,
             Type expectedType,
-            ValueTuple<T> value)
+            ValueTuple<T> value) where TBufferWriter : IBufferWriter<byte>
         {
             ReferenceCodec.MarkValueField(writer.Session);
             writer.WriteFieldHeader(fieldIdDelta, expectedType, value.GetType(), WireType.TagDelimited);
@@ -83,13 +69,9 @@ namespace Orleans.Serialization.Codecs
         }
 
         /// <inheritdoc />
-        ValueTuple<T> IFieldCodec<ValueTuple<T>>.ReadValue<TInput>(ref Reader<TInput> reader, Field field)
+        public ValueTuple<T> ReadValue<TInput>(ref Reader<TInput> reader, Field field)
         {
-            if (field.WireType != WireType.TagDelimited)
-            {
-                ValueTupleCodec.ThrowUnsupportedWireTypeException();
-            }
-
+            field.EnsureWireTypeTagDelimited();
             ReferenceCodec.MarkValueField(reader.Session);
             var item1 = default(T);
             uint fieldId = 0;
@@ -122,7 +104,7 @@ namespace Orleans.Serialization.Codecs
     /// </summary>
     /// <typeparam name="T">The element type.</typeparam>
     [RegisterCopier]
-    public class ValueTupleCopier<T> : IDeepCopier<ValueTuple<T>>
+    public sealed class ValueTupleCopier<T> : IDeepCopier<ValueTuple<T>>, IOptionalDeepCopier
     {
         private readonly IDeepCopier<T> _copier;
 
@@ -130,13 +112,18 @@ namespace Orleans.Serialization.Codecs
         /// Initializes a new instance of the <see cref="ValueTupleCopier{T}"/> class.
         /// </summary>
         /// <param name="copier">The copier.</param>
-        public ValueTupleCopier(IDeepCopier<T> copier)
-        {
-            _copier = copier;
-        }
+        public ValueTupleCopier(IDeepCopier<T> copier) => _copier = OrleansGeneratedCodeHelper.GetOptionalCopier(copier);
+
+        public bool IsShallowCopyable() => _copier is null;
+
+        object IDeepCopier.DeepCopy(object input, CopyContext context) => IsShallowCopyable() ? input : DeepCopy((ValueTuple<T>)input, context);
 
         /// <inheritdoc />
-        public ValueTuple<T> DeepCopy(ValueTuple<T> input, CopyContext context) => new(_copier.DeepCopy(input.Item1, context));
+        public ValueTuple<T> DeepCopy(ValueTuple<T> input, CopyContext context)
+        {
+            if (_copier != null) input.Item1 = _copier.DeepCopy(input.Item1, context);
+            return input;
+        }
     }
 
     /// <summary>
@@ -147,8 +134,8 @@ namespace Orleans.Serialization.Codecs
     [RegisterSerializer]
     public sealed class ValueTupleCodec<T1, T2> : IFieldCodec<ValueTuple<T1, T2>>
     {
-        private static readonly Type ElementType1 = typeof(T1);
-        private static readonly Type ElementType2 = typeof(T2);
+        private readonly Type ElementType1 = typeof(T1);
+        private readonly Type ElementType2 = typeof(T2);
 
         private readonly IFieldCodec<T1> _item1Codec;
         private readonly IFieldCodec<T2> _item2Codec;
@@ -165,11 +152,11 @@ namespace Orleans.Serialization.Codecs
         }
 
         /// <inheritdoc />
-        void IFieldCodec<ValueTuple<T1, T2>>.WriteField<TBufferWriter>(
+        public void WriteField<TBufferWriter>(
             ref Writer<TBufferWriter> writer,
             uint fieldIdDelta,
             Type expectedType,
-            (T1, T2) value)
+            (T1, T2) value) where TBufferWriter : IBufferWriter<byte>
         {
             ReferenceCodec.MarkValueField(writer.Session);
             writer.WriteFieldHeader(fieldIdDelta, expectedType, value.GetType(), WireType.TagDelimited);
@@ -181,16 +168,11 @@ namespace Orleans.Serialization.Codecs
         }
 
         /// <inheritdoc />
-        (T1, T2) IFieldCodec<ValueTuple<T1, T2>>.ReadValue<TInput>(ref Reader<TInput> reader, Field field)
+        public (T1, T2) ReadValue<TInput>(ref Reader<TInput> reader, Field field)
         {
-            if (field.WireType != WireType.TagDelimited)
-            {
-                ValueTupleCodec.ThrowUnsupportedWireTypeException();
-            }
-
+            field.EnsureWireTypeTagDelimited();
             ReferenceCodec.MarkValueField(reader.Session);
-            var item1 = default(T1);
-            var item2 = default(T2);
+            (T1, T2) res = default;
             uint fieldId = 0;
             while (true)
             {
@@ -203,19 +185,15 @@ namespace Orleans.Serialization.Codecs
                 fieldId += header.FieldIdDelta;
                 switch (fieldId)
                 {
-                    case 1:
-                        item1 = _item1Codec.ReadValue(ref reader, header);
-                        break;
-                    case 2:
-                        item2 = _item2Codec.ReadValue(ref reader, header);
-                        break;
+                    case 1: res.Item1 = _item1Codec.ReadValue(ref reader, header); break;
+                    case 2: res.Item2 = _item2Codec.ReadValue(ref reader, header); break;
                     default:
                         reader.ConsumeUnknownField(header);
                         break;
                 }
             }
 
-            return new ValueTuple<T1, T2>(item1, item2);
+            return res;
         }
     }
 
@@ -225,7 +203,7 @@ namespace Orleans.Serialization.Codecs
     /// <typeparam name="T1">The type of the tuple's first component.</typeparam>
     /// <typeparam name="T2">The type of the tuple's second component.</typeparam>
     [RegisterCopier]
-    public class ValueTupleCopier<T1, T2> : IDeepCopier<ValueTuple<T1, T2>>
+    public sealed class ValueTupleCopier<T1, T2> : IDeepCopier<ValueTuple<T1, T2>>, IOptionalDeepCopier
     {
         private readonly IDeepCopier<T1> _copier1;
         private readonly IDeepCopier<T2> _copier2;
@@ -237,14 +215,21 @@ namespace Orleans.Serialization.Codecs
         /// <param name="copier2">The copier for <typeparamref name="T2"/>.</param>
         public ValueTupleCopier(IDeepCopier<T1> copier1, IDeepCopier<T2> copier2)
         {
-            _copier1 = copier1;
-            _copier2 = copier2;
+            _copier1 = OrleansGeneratedCodeHelper.GetOptionalCopier(copier1);
+            _copier2 = OrleansGeneratedCodeHelper.GetOptionalCopier(copier2);
         }
 
+        public bool IsShallowCopyable() => _copier1 is null && _copier2 is null;
+
+        object IDeepCopier.DeepCopy(object input, CopyContext context) => IsShallowCopyable() ? input : DeepCopy(((T1, T2))input, context);
+
         /// <inheritdoc />
-        public ValueTuple<T1, T2> DeepCopy(ValueTuple<T1, T2> input, CopyContext context) => ValueTuple.Create(
-                _copier1.DeepCopy(input.Item1, context),
-                _copier2.DeepCopy(input.Item2, context));
+        public ValueTuple<T1, T2> DeepCopy(ValueTuple<T1, T2> input, CopyContext context)
+        {
+            if (_copier1 != null) input.Item1 = _copier1.DeepCopy(input.Item1, context);
+            if (_copier2 != null) input.Item2 = _copier2.DeepCopy(input.Item2, context);
+            return input;
+        }
     }
 
     /// <summary>
@@ -256,9 +241,9 @@ namespace Orleans.Serialization.Codecs
     [RegisterSerializer]
     public sealed class ValueTupleCodec<T1, T2, T3> : IFieldCodec<ValueTuple<T1, T2, T3>>
     {
-        private static readonly Type ElementType1 = typeof(T1);
-        private static readonly Type ElementType2 = typeof(T2);
-        private static readonly Type ElementType3 = typeof(T3);
+        private readonly Type ElementType1 = typeof(T1);
+        private readonly Type ElementType2 = typeof(T2);
+        private readonly Type ElementType3 = typeof(T3);
 
         private readonly IFieldCodec<T1> _item1Codec;
         private readonly IFieldCodec<T2> _item2Codec;
@@ -281,11 +266,11 @@ namespace Orleans.Serialization.Codecs
         }
 
         /// <inheritdoc />
-        void IFieldCodec<ValueTuple<T1, T2, T3>>.WriteField<TBufferWriter>(
+        public void WriteField<TBufferWriter>(
             ref Writer<TBufferWriter> writer,
             uint fieldIdDelta,
             Type expectedType,
-            (T1, T2, T3) value)
+            (T1, T2, T3) value) where TBufferWriter : IBufferWriter<byte>
         {
             ReferenceCodec.MarkValueField(writer.Session);
             writer.WriteFieldHeader(fieldIdDelta, expectedType, value.GetType(), WireType.TagDelimited);
@@ -298,17 +283,11 @@ namespace Orleans.Serialization.Codecs
         }
 
         /// <inheritdoc />
-        (T1, T2, T3) IFieldCodec<ValueTuple<T1, T2, T3>>.ReadValue<TInput>(ref Reader<TInput> reader, Field field)
+        public (T1, T2, T3) ReadValue<TInput>(ref Reader<TInput> reader, Field field)
         {
-            if (field.WireType != WireType.TagDelimited)
-            {
-                ValueTupleCodec.ThrowUnsupportedWireTypeException();
-            }
-
+            field.EnsureWireTypeTagDelimited();
             ReferenceCodec.MarkValueField(reader.Session);
-            var item1 = default(T1);
-            var item2 = default(T2);
-            var item3 = default(T3);
+            (T1, T2, T3) res = default;
             uint fieldId = 0;
             while (true)
             {
@@ -321,22 +300,16 @@ namespace Orleans.Serialization.Codecs
                 fieldId += header.FieldIdDelta;
                 switch (fieldId)
                 {
-                    case 1:
-                        item1 = _item1Codec.ReadValue(ref reader, header);
-                        break;
-                    case 2:
-                        item2 = _item2Codec.ReadValue(ref reader, header);
-                        break;
-                    case 3:
-                        item3 = _item3Codec.ReadValue(ref reader, header);
-                        break;
+                    case 1: res.Item1 = _item1Codec.ReadValue(ref reader, header); break;
+                    case 2: res.Item2 = _item2Codec.ReadValue(ref reader, header); break;
+                    case 3: res.Item3 = _item3Codec.ReadValue(ref reader, header); break;
                     default:
                         reader.ConsumeUnknownField(header);
                         break;
                 }
             }
 
-            return new ValueTuple<T1, T2, T3>(item1, item2, item3);
+            return res;
         }
     }
 
@@ -347,7 +320,7 @@ namespace Orleans.Serialization.Codecs
     /// <typeparam name="T2">The type of the tuple's second component.</typeparam>
     /// <typeparam name="T3">The type of the tuple's third component.</typeparam>
     [RegisterCopier]
-    public class ValueTupleCopier<T1, T2, T3> : IDeepCopier<ValueTuple<T1, T2, T3>>
+    public sealed class ValueTupleCopier<T1, T2, T3> : IDeepCopier<ValueTuple<T1, T2, T3>>, IOptionalDeepCopier
     {
         private readonly IDeepCopier<T1> _copier1;
         private readonly IDeepCopier<T2> _copier2;
@@ -364,16 +337,23 @@ namespace Orleans.Serialization.Codecs
             IDeepCopier<T2> copier2,
             IDeepCopier<T3> copier3)
         {
-            _copier1 = copier1;
-            _copier2 = copier2;
-            _copier3 = copier3;
+            _copier1 = OrleansGeneratedCodeHelper.GetOptionalCopier(copier1);
+            _copier2 = OrleansGeneratedCodeHelper.GetOptionalCopier(copier2);
+            _copier3 = OrleansGeneratedCodeHelper.GetOptionalCopier(copier3);
         }
 
+        public bool IsShallowCopyable() => _copier1 is null && _copier2 is null && _copier3 is null;
+
+        object IDeepCopier.DeepCopy(object input, CopyContext context) => IsShallowCopyable() ? input : DeepCopy(((T1, T2, T3))input, context);
+
         /// <inheritdoc />
-        public ValueTuple<T1, T2, T3> DeepCopy(ValueTuple<T1, T2, T3> input, CopyContext context) => ValueTuple.Create(
-                _copier1.DeepCopy(input.Item1, context),
-                _copier2.DeepCopy(input.Item2, context),
-                _copier3.DeepCopy(input.Item3, context));
+        public ValueTuple<T1, T2, T3> DeepCopy(ValueTuple<T1, T2, T3> input, CopyContext context)
+        {
+            if (_copier1 != null) input.Item1 = _copier1.DeepCopy(input.Item1, context);
+            if (_copier2 != null) input.Item2 = _copier2.DeepCopy(input.Item2, context);
+            if (_copier3 != null) input.Item3 = _copier3.DeepCopy(input.Item3, context);
+            return input;
+        }
     }
 
     /// <summary>
@@ -386,10 +366,10 @@ namespace Orleans.Serialization.Codecs
     [RegisterSerializer]
     public sealed class ValueTupleCodec<T1, T2, T3, T4> : IFieldCodec<ValueTuple<T1, T2, T3, T4>>
     {
-        private static readonly Type ElementType1 = typeof(T1);
-        private static readonly Type ElementType2 = typeof(T2);
-        private static readonly Type ElementType3 = typeof(T3);
-        private static readonly Type ElementType4 = typeof(T4);
+        private readonly Type ElementType1 = typeof(T1);
+        private readonly Type ElementType2 = typeof(T2);
+        private readonly Type ElementType3 = typeof(T3);
+        private readonly Type ElementType4 = typeof(T4);
 
         private readonly IFieldCodec<T1> _item1Codec;
         private readonly IFieldCodec<T2> _item2Codec;
@@ -416,11 +396,11 @@ namespace Orleans.Serialization.Codecs
         }
 
         /// <inheritdoc />
-        void IFieldCodec<ValueTuple<T1, T2, T3, T4>>.WriteField<TBufferWriter>(
+        public void WriteField<TBufferWriter>(
             ref Writer<TBufferWriter> writer,
             uint fieldIdDelta,
             Type expectedType,
-            (T1, T2, T3, T4) value)
+            (T1, T2, T3, T4) value) where TBufferWriter : IBufferWriter<byte>
         {
             ReferenceCodec.MarkValueField(writer.Session);
             writer.WriteFieldHeader(fieldIdDelta, expectedType, value.GetType(), WireType.TagDelimited);
@@ -434,18 +414,11 @@ namespace Orleans.Serialization.Codecs
         }
 
         /// <inheritdoc />
-        (T1, T2, T3, T4) IFieldCodec<ValueTuple<T1, T2, T3, T4>>.ReadValue<TInput>(ref Reader<TInput> reader, Field field)
+        public (T1, T2, T3, T4) ReadValue<TInput>(ref Reader<TInput> reader, Field field)
         {
-            if (field.WireType != WireType.TagDelimited)
-            {
-                ValueTupleCodec.ThrowUnsupportedWireTypeException();
-            }
-
+            field.EnsureWireTypeTagDelimited();
             ReferenceCodec.MarkValueField(reader.Session);
-            var item1 = default(T1);
-            var item2 = default(T2);
-            var item3 = default(T3);
-            var item4 = default(T4);
+            (T1, T2, T3, T4) res = default;
             uint fieldId = 0;
             while (true)
             {
@@ -458,25 +431,17 @@ namespace Orleans.Serialization.Codecs
                 fieldId += header.FieldIdDelta;
                 switch (fieldId)
                 {
-                    case 1:
-                        item1 = _item1Codec.ReadValue(ref reader, header);
-                        break;
-                    case 2:
-                        item2 = _item2Codec.ReadValue(ref reader, header);
-                        break;
-                    case 3:
-                        item3 = _item3Codec.ReadValue(ref reader, header);
-                        break;
-                    case 4:
-                        item4 = _item4Codec.ReadValue(ref reader, header);
-                        break;
+                    case 1: res.Item1 = _item1Codec.ReadValue(ref reader, header); break;
+                    case 2: res.Item2 = _item2Codec.ReadValue(ref reader, header); break;
+                    case 3: res.Item3 = _item3Codec.ReadValue(ref reader, header); break;
+                    case 4: res.Item4 = _item4Codec.ReadValue(ref reader, header); break;
                     default:
                         reader.ConsumeUnknownField(header);
                         break;
                 }
             }
 
-            return new ValueTuple<T1, T2, T3, T4>(item1, item2, item3, item4);
+            return res;
         }
     }
 
@@ -488,7 +453,7 @@ namespace Orleans.Serialization.Codecs
     /// <typeparam name="T3">The type of the tuple's third component.</typeparam>
     /// <typeparam name="T4">The type of the tuple's fourth component.</typeparam>
     [RegisterCopier]
-    public class ValueTupleCopier<T1, T2, T3, T4> : IDeepCopier<ValueTuple<T1, T2, T3, T4>>
+    public sealed class ValueTupleCopier<T1, T2, T3, T4> : IDeepCopier<ValueTuple<T1, T2, T3, T4>>, IOptionalDeepCopier
     {
         private readonly IDeepCopier<T1> _copier1;
         private readonly IDeepCopier<T2> _copier2;
@@ -508,18 +473,25 @@ namespace Orleans.Serialization.Codecs
             IDeepCopier<T3> copier3,
             IDeepCopier<T4> copier4)
         {
-            _copier1 = copier1;
-            _copier2 = copier2;
-            _copier3 = copier3;
-            _copier4 = copier4;
+            _copier1 = OrleansGeneratedCodeHelper.GetOptionalCopier(copier1);
+            _copier2 = OrleansGeneratedCodeHelper.GetOptionalCopier(copier2);
+            _copier3 = OrleansGeneratedCodeHelper.GetOptionalCopier(copier3);
+            _copier4 = OrleansGeneratedCodeHelper.GetOptionalCopier(copier4);
         }
 
+        public bool IsShallowCopyable() => _copier1 is null && _copier2 is null && _copier3 is null && _copier4 is null;
+
+        object IDeepCopier.DeepCopy(object input, CopyContext context) => IsShallowCopyable() ? input : DeepCopy(((T1, T2, T3, T4))input, context);
+
         /// <inheritdoc />
-        public ValueTuple<T1, T2, T3, T4> DeepCopy(ValueTuple<T1, T2, T3, T4> input, CopyContext context) => ValueTuple.Create(
-                _copier1.DeepCopy(input.Item1, context),
-                _copier2.DeepCopy(input.Item2, context),
-                _copier3.DeepCopy(input.Item3, context),
-                _copier4.DeepCopy(input.Item4, context));
+        public ValueTuple<T1, T2, T3, T4> DeepCopy(ValueTuple<T1, T2, T3, T4> input, CopyContext context)
+        {
+            if (_copier1 != null) input.Item1 = _copier1.DeepCopy(input.Item1, context);
+            if (_copier2 != null) input.Item2 = _copier2.DeepCopy(input.Item2, context);
+            if (_copier3 != null) input.Item3 = _copier3.DeepCopy(input.Item3, context);
+            if (_copier4 != null) input.Item4 = _copier4.DeepCopy(input.Item4, context);
+            return input;
+        }
     }
 
     /// <summary>
@@ -533,11 +505,11 @@ namespace Orleans.Serialization.Codecs
     [RegisterSerializer]
     public sealed class ValueTupleCodec<T1, T2, T3, T4, T5> : IFieldCodec<ValueTuple<T1, T2, T3, T4, T5>>
     {
-        private static readonly Type ElementType1 = typeof(T1);
-        private static readonly Type ElementType2 = typeof(T2);
-        private static readonly Type ElementType3 = typeof(T3);
-        private static readonly Type ElementType4 = typeof(T4);
-        private static readonly Type ElementType5 = typeof(T5);
+        private readonly Type ElementType1 = typeof(T1);
+        private readonly Type ElementType2 = typeof(T2);
+        private readonly Type ElementType3 = typeof(T3);
+        private readonly Type ElementType4 = typeof(T4);
+        private readonly Type ElementType5 = typeof(T5);
 
         private readonly IFieldCodec<T1> _item1Codec;
         private readonly IFieldCodec<T2> _item2Codec;
@@ -568,10 +540,10 @@ namespace Orleans.Serialization.Codecs
         }
 
         /// <inheritdoc />
-        void IFieldCodec<ValueTuple<T1, T2, T3, T4, T5>>.WriteField<TBufferWriter>(ref Writer<TBufferWriter> writer,
+        public void WriteField<TBufferWriter>(ref Writer<TBufferWriter> writer,
             uint fieldIdDelta,
             Type expectedType,
-            (T1, T2, T3, T4, T5) value)
+            (T1, T2, T3, T4, T5) value) where TBufferWriter : IBufferWriter<byte>
         {
             ReferenceCodec.MarkValueField(writer.Session);
             writer.WriteFieldHeader(fieldIdDelta, expectedType, value.GetType(), WireType.TagDelimited);
@@ -586,19 +558,11 @@ namespace Orleans.Serialization.Codecs
         }
 
         /// <inheritdoc />
-        (T1, T2, T3, T4, T5) IFieldCodec<ValueTuple<T1, T2, T3, T4, T5>>.ReadValue<TInput>(ref Reader<TInput> reader, Field field)
+        public (T1, T2, T3, T4, T5) ReadValue<TInput>(ref Reader<TInput> reader, Field field)
         {
-            if (field.WireType != WireType.TagDelimited)
-            {
-                ValueTupleCodec.ThrowUnsupportedWireTypeException();
-            }
-
+            field.EnsureWireTypeTagDelimited();
             ReferenceCodec.MarkValueField(reader.Session);
-            var item1 = default(T1);
-            var item2 = default(T2);
-            var item3 = default(T3);
-            var item4 = default(T4);
-            var item5 = default(T5);
+            (T1, T2, T3, T4, T5) res = default;
             uint fieldId = 0;
             while (true)
             {
@@ -611,28 +575,18 @@ namespace Orleans.Serialization.Codecs
                 fieldId += header.FieldIdDelta;
                 switch (fieldId)
                 {
-                    case 1:
-                        item1 = _item1Codec.ReadValue(ref reader, header);
-                        break;
-                    case 2:
-                        item2 = _item2Codec.ReadValue(ref reader, header);
-                        break;
-                    case 3:
-                        item3 = _item3Codec.ReadValue(ref reader, header);
-                        break;
-                    case 4:
-                        item4 = _item4Codec.ReadValue(ref reader, header);
-                        break;
-                    case 5:
-                        item5 = _item5Codec.ReadValue(ref reader, header);
-                        break;
+                    case 1: res.Item1 = _item1Codec.ReadValue(ref reader, header); break;
+                    case 2: res.Item2 = _item2Codec.ReadValue(ref reader, header); break;
+                    case 3: res.Item3 = _item3Codec.ReadValue(ref reader, header); break;
+                    case 4: res.Item4 = _item4Codec.ReadValue(ref reader, header); break;
+                    case 5: res.Item5 = _item5Codec.ReadValue(ref reader, header); break;
                     default:
                         reader.ConsumeUnknownField(header);
                         break;
                 }
             }
 
-            return new ValueTuple<T1, T2, T3, T4, T5>(item1, item2, item3, item4, item5);
+            return res;
         }
     }
 
@@ -645,7 +599,7 @@ namespace Orleans.Serialization.Codecs
     /// <typeparam name="T4">The type of the tuple's fourth component.</typeparam>
     /// <typeparam name="T5">The type of the tuple's fifth component.</typeparam>
     [RegisterCopier]
-    public class ValueTupleCopier<T1, T2, T3, T4, T5> : IDeepCopier<ValueTuple<T1, T2, T3, T4, T5>>
+    public sealed class ValueTupleCopier<T1, T2, T3, T4, T5> : IDeepCopier<ValueTuple<T1, T2, T3, T4, T5>>, IOptionalDeepCopier
     {
         private readonly IDeepCopier<T1> _copier1;
         private readonly IDeepCopier<T2> _copier2;
@@ -668,20 +622,27 @@ namespace Orleans.Serialization.Codecs
             IDeepCopier<T4> copier4,
             IDeepCopier<T5> copier5)
         {
-            _copier1 = copier1;
-            _copier2 = copier2;
-            _copier3 = copier3;
-            _copier4 = copier4;
-            _copier5 = copier5;
+            _copier1 = OrleansGeneratedCodeHelper.GetOptionalCopier(copier1);
+            _copier2 = OrleansGeneratedCodeHelper.GetOptionalCopier(copier2);
+            _copier3 = OrleansGeneratedCodeHelper.GetOptionalCopier(copier3);
+            _copier4 = OrleansGeneratedCodeHelper.GetOptionalCopier(copier4);
+            _copier5 = OrleansGeneratedCodeHelper.GetOptionalCopier(copier5);
         }
 
+        public bool IsShallowCopyable() => _copier1 is null && _copier2 is null && _copier3 is null && _copier4 is null && _copier5 is null;
+
+        object IDeepCopier.DeepCopy(object input, CopyContext context) => IsShallowCopyable() ? input : DeepCopy(((T1, T2, T3, T4, T5))input, context);
+
         /// <inheritdoc />
-        public ValueTuple<T1, T2, T3, T4, T5> DeepCopy(ValueTuple<T1, T2, T3, T4, T5> input, CopyContext context) => ValueTuple.Create(
-                _copier1.DeepCopy(input.Item1, context),
-                _copier2.DeepCopy(input.Item2, context),
-                _copier3.DeepCopy(input.Item3, context),
-                _copier4.DeepCopy(input.Item4, context),
-                _copier5.DeepCopy(input.Item5, context));
+        public ValueTuple<T1, T2, T3, T4, T5> DeepCopy(ValueTuple<T1, T2, T3, T4, T5> input, CopyContext context)
+        {
+            if (_copier1 != null) input.Item1 = _copier1.DeepCopy(input.Item1, context);
+            if (_copier2 != null) input.Item2 = _copier2.DeepCopy(input.Item2, context);
+            if (_copier3 != null) input.Item3 = _copier3.DeepCopy(input.Item3, context);
+            if (_copier4 != null) input.Item4 = _copier4.DeepCopy(input.Item4, context);
+            if (_copier5 != null) input.Item5 = _copier5.DeepCopy(input.Item5, context);
+            return input;
+        }
     } 
 
     /// <summary>
@@ -696,12 +657,12 @@ namespace Orleans.Serialization.Codecs
     [RegisterSerializer]
     public sealed class ValueTupleCodec<T1, T2, T3, T4, T5, T6> : IFieldCodec<ValueTuple<T1, T2, T3, T4, T5, T6>>
     {
-        private static readonly Type ElementType1 = typeof(T1);
-        private static readonly Type ElementType2 = typeof(T2);
-        private static readonly Type ElementType3 = typeof(T3);
-        private static readonly Type ElementType4 = typeof(T4);
-        private static readonly Type ElementType5 = typeof(T5);
-        private static readonly Type ElementType6 = typeof(T6);
+        private readonly Type ElementType1 = typeof(T1);
+        private readonly Type ElementType2 = typeof(T2);
+        private readonly Type ElementType3 = typeof(T3);
+        private readonly Type ElementType4 = typeof(T4);
+        private readonly Type ElementType5 = typeof(T5);
+        private readonly Type ElementType6 = typeof(T6);
 
         private readonly IFieldCodec<T1> _item1Codec;
         private readonly IFieldCodec<T2> _item2Codec;
@@ -736,10 +697,10 @@ namespace Orleans.Serialization.Codecs
         }
 
         /// <inheritdoc />
-        void IFieldCodec<ValueTuple<T1, T2, T3, T4, T5, T6>>.WriteField<TBufferWriter>(ref Writer<TBufferWriter> writer,
+        public void WriteField<TBufferWriter>(ref Writer<TBufferWriter> writer,
             uint fieldIdDelta,
             Type expectedType,
-            (T1, T2, T3, T4, T5, T6) value)
+            (T1, T2, T3, T4, T5, T6) value) where TBufferWriter : IBufferWriter<byte>
         {
             ReferenceCodec.MarkValueField(writer.Session);
             writer.WriteFieldHeader(fieldIdDelta, expectedType, value.GetType(), WireType.TagDelimited);
@@ -756,20 +717,11 @@ namespace Orleans.Serialization.Codecs
         }
 
         /// <inheritdoc />
-        (T1, T2, T3, T4, T5, T6) IFieldCodec<ValueTuple<T1, T2, T3, T4, T5, T6>>.ReadValue<TInput>(ref Reader<TInput> reader, Field field)
+        public (T1, T2, T3, T4, T5, T6) ReadValue<TInput>(ref Reader<TInput> reader, Field field)
         {
-            if (field.WireType != WireType.TagDelimited)
-            {
-                ValueTupleCodec.ThrowUnsupportedWireTypeException();
-            }
-
+            field.EnsureWireTypeTagDelimited();
             ReferenceCodec.MarkValueField(reader.Session);
-            var item1 = default(T1);
-            var item2 = default(T2);
-            var item3 = default(T3);
-            var item4 = default(T4);
-            var item5 = default(T5);
-            var item6 = default(T6);
+            (T1, T2, T3, T4, T5, T6) res = default;
             uint fieldId = 0;
             while (true)
             {
@@ -782,31 +734,19 @@ namespace Orleans.Serialization.Codecs
                 fieldId += header.FieldIdDelta;
                 switch (fieldId)
                 {
-                    case 1:
-                        item1 = _item1Codec.ReadValue(ref reader, header);
-                        break;
-                    case 2:
-                        item2 = _item2Codec.ReadValue(ref reader, header);
-                        break;
-                    case 3:
-                        item3 = _item3Codec.ReadValue(ref reader, header);
-                        break;
-                    case 4:
-                        item4 = _item4Codec.ReadValue(ref reader, header);
-                        break;
-                    case 5:
-                        item5 = _item5Codec.ReadValue(ref reader, header);
-                        break;
-                    case 6:
-                        item6 = _item6Codec.ReadValue(ref reader, header);
-                        break;
+                    case 1: res.Item1 = _item1Codec.ReadValue(ref reader, header); break;
+                    case 2: res.Item2 = _item2Codec.ReadValue(ref reader, header); break;
+                    case 3: res.Item3 = _item3Codec.ReadValue(ref reader, header); break;
+                    case 4: res.Item4 = _item4Codec.ReadValue(ref reader, header); break;
+                    case 5: res.Item5 = _item5Codec.ReadValue(ref reader, header); break;
+                    case 6: res.Item6 = _item6Codec.ReadValue(ref reader, header); break;
                     default:
                         reader.ConsumeUnknownField(header);
                         break;
                 }
             }
 
-            return new ValueTuple<T1, T2, T3, T4, T5, T6>(item1, item2, item3, item4, item5, item6);
+            return res;
         }
     }
     
@@ -820,7 +760,7 @@ namespace Orleans.Serialization.Codecs
     /// <typeparam name="T5">The type of the tuple's fifth component.</typeparam>
     /// <typeparam name="T6">The type of the tuple's sixth component.</typeparam>
     [RegisterCopier]
-    public class ValueTupleCopier<T1, T2, T3, T4, T5, T6> : IDeepCopier<ValueTuple<T1, T2, T3, T4, T5, T6>>
+    public sealed class ValueTupleCopier<T1, T2, T3, T4, T5, T6> : IDeepCopier<ValueTuple<T1, T2, T3, T4, T5, T6>>, IOptionalDeepCopier
     {
         private readonly IDeepCopier<T1> _copier1;
         private readonly IDeepCopier<T2> _copier2;
@@ -846,22 +786,29 @@ namespace Orleans.Serialization.Codecs
             IDeepCopier<T5> copier5,
             IDeepCopier<T6> copier6)
         {
-            _copier1 = copier1;
-            _copier2 = copier2;
-            _copier3 = copier3;
-            _copier4 = copier4;
-            _copier5 = copier5;
-            _copier6 = copier6;
+            _copier1 = OrleansGeneratedCodeHelper.GetOptionalCopier(copier1);
+            _copier2 = OrleansGeneratedCodeHelper.GetOptionalCopier(copier2);
+            _copier3 = OrleansGeneratedCodeHelper.GetOptionalCopier(copier3);
+            _copier4 = OrleansGeneratedCodeHelper.GetOptionalCopier(copier4);
+            _copier5 = OrleansGeneratedCodeHelper.GetOptionalCopier(copier5);
+            _copier6 = OrleansGeneratedCodeHelper.GetOptionalCopier(copier6);
         }
 
+        public bool IsShallowCopyable() => _copier1 is null && _copier2 is null && _copier3 is null && _copier4 is null && _copier5 is null && _copier6 is null;
+
+        object IDeepCopier.DeepCopy(object input, CopyContext context) => IsShallowCopyable() ? input : DeepCopy(((T1, T2, T3, T4, T5, T6))input, context);
+
         /// <inheritdoc />
-        public ValueTuple<T1, T2, T3, T4, T5, T6> DeepCopy(ValueTuple<T1, T2, T3, T4, T5, T6> input, CopyContext context) => ValueTuple.Create(
-                _copier1.DeepCopy(input.Item1, context),
-                _copier2.DeepCopy(input.Item2, context),
-                _copier3.DeepCopy(input.Item3, context),
-                _copier4.DeepCopy(input.Item4, context),
-                _copier5.DeepCopy(input.Item5, context),
-                _copier6.DeepCopy(input.Item6, context));
+        public ValueTuple<T1, T2, T3, T4, T5, T6> DeepCopy(ValueTuple<T1, T2, T3, T4, T5, T6> input, CopyContext context)
+        {
+            if (_copier1 != null) input.Item1 = _copier1.DeepCopy(input.Item1, context);
+            if (_copier2 != null) input.Item2 = _copier2.DeepCopy(input.Item2, context);
+            if (_copier3 != null) input.Item3 = _copier3.DeepCopy(input.Item3, context);
+            if (_copier4 != null) input.Item4 = _copier4.DeepCopy(input.Item4, context);
+            if (_copier5 != null) input.Item5 = _copier5.DeepCopy(input.Item5, context);
+            if (_copier6 != null) input.Item6 = _copier6.DeepCopy(input.Item6, context);
+            return input;
+        }
     } 
 
     /// <summary>
@@ -877,13 +824,13 @@ namespace Orleans.Serialization.Codecs
     [RegisterSerializer]
     public sealed class ValueTupleCodec<T1, T2, T3, T4, T5, T6, T7> : IFieldCodec<ValueTuple<T1, T2, T3, T4, T5, T6, T7>>
     {
-        private static readonly Type ElementType1 = typeof(T1);
-        private static readonly Type ElementType2 = typeof(T2);
-        private static readonly Type ElementType3 = typeof(T3);
-        private static readonly Type ElementType4 = typeof(T4);
-        private static readonly Type ElementType5 = typeof(T5);
-        private static readonly Type ElementType6 = typeof(T6);
-        private static readonly Type ElementType7 = typeof(T7);
+        private readonly Type ElementType1 = typeof(T1);
+        private readonly Type ElementType2 = typeof(T2);
+        private readonly Type ElementType3 = typeof(T3);
+        private readonly Type ElementType4 = typeof(T4);
+        private readonly Type ElementType5 = typeof(T5);
+        private readonly Type ElementType6 = typeof(T6);
+        private readonly Type ElementType7 = typeof(T7);
 
         private readonly IFieldCodec<T1> _item1Codec;
         private readonly IFieldCodec<T2> _item2Codec;
@@ -922,10 +869,10 @@ namespace Orleans.Serialization.Codecs
         }
 
         /// <inheritdoc />
-        void IFieldCodec<ValueTuple<T1, T2, T3, T4, T5, T6, T7>>.WriteField<TBufferWriter>(ref Writer<TBufferWriter> writer,
+        public void WriteField<TBufferWriter>(ref Writer<TBufferWriter> writer,
             uint fieldIdDelta,
             Type expectedType,
-            (T1, T2, T3, T4, T5, T6, T7) value)
+            (T1, T2, T3, T4, T5, T6, T7) value) where TBufferWriter : IBufferWriter<byte>
         {
             ReferenceCodec.MarkValueField(writer.Session);
             writer.WriteFieldHeader(fieldIdDelta, expectedType, value.GetType(), WireType.TagDelimited);
@@ -943,23 +890,13 @@ namespace Orleans.Serialization.Codecs
         }
 
         /// <inheritdoc />
-        (T1, T2, T3, T4, T5, T6, T7) IFieldCodec<ValueTuple<T1, T2, T3, T4, T5, T6, T7>>.ReadValue<TInput>(
+        public (T1, T2, T3, T4, T5, T6, T7) ReadValue<TInput>(
             ref Reader<TInput> reader,
             Field field)
         {
-            if (field.WireType != WireType.TagDelimited)
-            {
-                ValueTupleCodec.ThrowUnsupportedWireTypeException();
-            }
-
+            field.EnsureWireTypeTagDelimited();
             ReferenceCodec.MarkValueField(reader.Session);
-            var item1 = default(T1);
-            var item2 = default(T2);
-            var item3 = default(T3);
-            var item4 = default(T4);
-            var item5 = default(T5);
-            var item6 = default(T6);
-            var item7 = default(T7);
+            (T1, T2, T3, T4, T5, T6, T7) res = default;
             uint fieldId = 0;
             while (true)
             {
@@ -972,34 +909,20 @@ namespace Orleans.Serialization.Codecs
                 fieldId += header.FieldIdDelta;
                 switch (fieldId)
                 {
-                    case 1:
-                        item1 = _item1Codec.ReadValue(ref reader, header);
-                        break;
-                    case 2:
-                        item2 = _item2Codec.ReadValue(ref reader, header);
-                        break;
-                    case 3:
-                        item3 = _item3Codec.ReadValue(ref reader, header);
-                        break;
-                    case 4:
-                        item4 = _item4Codec.ReadValue(ref reader, header);
-                        break;
-                    case 5:
-                        item5 = _item5Codec.ReadValue(ref reader, header);
-                        break;
-                    case 6:
-                        item6 = _item6Codec.ReadValue(ref reader, header);
-                        break;
-                    case 7:
-                        item7 = _item7Codec.ReadValue(ref reader, header);
-                        break;
+                    case 1: res.Item1 = _item1Codec.ReadValue(ref reader, header); break;
+                    case 2: res.Item2 = _item2Codec.ReadValue(ref reader, header); break;
+                    case 3: res.Item3 = _item3Codec.ReadValue(ref reader, header); break;
+                    case 4: res.Item4 = _item4Codec.ReadValue(ref reader, header); break;
+                    case 5: res.Item5 = _item5Codec.ReadValue(ref reader, header); break;
+                    case 6: res.Item6 = _item6Codec.ReadValue(ref reader, header); break;
+                    case 7: res.Item7 = _item7Codec.ReadValue(ref reader, header); break;
                     default:
                         reader.ConsumeUnknownField(header);
                         break;
                 }
             }
 
-            return new ValueTuple<T1, T2, T3, T4, T5, T6, T7>(item1, item2, item3, item4, item5, item6, item7);
+            return res;
         }
     }
 
@@ -1014,7 +937,7 @@ namespace Orleans.Serialization.Codecs
     /// <typeparam name="T6">The type of the tuple's sixth component.</typeparam>
     /// <typeparam name="T7">The type of the tuple's seventh component.</typeparam>
     [RegisterCopier]
-    public class ValueTupleCopier<T1, T2, T3, T4, T5, T6, T7> : IDeepCopier<ValueTuple<T1, T2, T3, T4, T5, T6, T7>>
+    public sealed class ValueTupleCopier<T1, T2, T3, T4, T5, T6, T7> : IDeepCopier<ValueTuple<T1, T2, T3, T4, T5, T6, T7>>, IOptionalDeepCopier
     {
         private readonly IDeepCopier<T1> _copier1;
         private readonly IDeepCopier<T2> _copier2;
@@ -1043,24 +966,31 @@ namespace Orleans.Serialization.Codecs
             IDeepCopier<T6> copier6,
             IDeepCopier<T7> copier7)
         {
-            _copier1 = copier1;
-            _copier2 = copier2;
-            _copier3 = copier3;
-            _copier4 = copier4;
-            _copier5 = copier5;
-            _copier6 = copier6;
-            _copier7 = copier7;
+            _copier1 = OrleansGeneratedCodeHelper.GetOptionalCopier(copier1);
+            _copier2 = OrleansGeneratedCodeHelper.GetOptionalCopier(copier2);
+            _copier3 = OrleansGeneratedCodeHelper.GetOptionalCopier(copier3);
+            _copier4 = OrleansGeneratedCodeHelper.GetOptionalCopier(copier4);
+            _copier5 = OrleansGeneratedCodeHelper.GetOptionalCopier(copier5);
+            _copier6 = OrleansGeneratedCodeHelper.GetOptionalCopier(copier6);
+            _copier7 = OrleansGeneratedCodeHelper.GetOptionalCopier(copier7);
         }
 
+        public bool IsShallowCopyable() => _copier1 is null && _copier2 is null && _copier3 is null && _copier4 is null && _copier5 is null && _copier6 is null && _copier7 is null;
+
+        object IDeepCopier.DeepCopy(object input, CopyContext context) => IsShallowCopyable() ? input : DeepCopy(((T1, T2, T3, T4, T5, T6, T7))input, context);
+
         /// <inheritdoc />
-        public ValueTuple<T1, T2, T3, T4, T5, T6, T7> DeepCopy(ValueTuple<T1, T2, T3, T4, T5, T6, T7> input, CopyContext context) => ValueTuple.Create(
-                _copier1.DeepCopy(input.Item1, context),
-                _copier2.DeepCopy(input.Item2, context),
-                _copier3.DeepCopy(input.Item3, context),
-                _copier4.DeepCopy(input.Item4, context),
-                _copier5.DeepCopy(input.Item5, context),
-                _copier6.DeepCopy(input.Item6, context),
-                _copier7.DeepCopy(input.Item7, context));
+        public ValueTuple<T1, T2, T3, T4, T5, T6, T7> DeepCopy(ValueTuple<T1, T2, T3, T4, T5, T6, T7> input, CopyContext context)
+        {
+            if (_copier1 != null) input.Item1 = _copier1.DeepCopy(input.Item1, context);
+            if (_copier2 != null) input.Item2 = _copier2.DeepCopy(input.Item2, context);
+            if (_copier3 != null) input.Item3 = _copier3.DeepCopy(input.Item3, context);
+            if (_copier4 != null) input.Item4 = _copier4.DeepCopy(input.Item4, context);
+            if (_copier5 != null) input.Item5 = _copier5.DeepCopy(input.Item5, context);
+            if (_copier6 != null) input.Item6 = _copier6.DeepCopy(input.Item6, context);
+            if (_copier7 != null) input.Item7 = _copier7.DeepCopy(input.Item7, context);
+            return input;
+        }
     } 
 
     /// <summary>
@@ -1077,14 +1007,14 @@ namespace Orleans.Serialization.Codecs
     [RegisterSerializer]
     public sealed class ValueTupleCodec<T1, T2, T3, T4, T5, T6, T7, T8> : IFieldCodec<ValueTuple<T1, T2, T3, T4, T5, T6, T7, T8>> where T8 : struct
     {
-        private static readonly Type ElementType1 = typeof(T1);
-        private static readonly Type ElementType2 = typeof(T2);
-        private static readonly Type ElementType3 = typeof(T3);
-        private static readonly Type ElementType4 = typeof(T4);
-        private static readonly Type ElementType5 = typeof(T5);
-        private static readonly Type ElementType6 = typeof(T6);
-        private static readonly Type ElementType7 = typeof(T7);
-        private static readonly Type ElementType8 = typeof(T8);
+        private readonly Type ElementType1 = typeof(T1);
+        private readonly Type ElementType2 = typeof(T2);
+        private readonly Type ElementType3 = typeof(T3);
+        private readonly Type ElementType4 = typeof(T4);
+        private readonly Type ElementType5 = typeof(T5);
+        private readonly Type ElementType6 = typeof(T6);
+        private readonly Type ElementType7 = typeof(T7);
+        private readonly Type ElementType8 = typeof(T8);
 
         private readonly IFieldCodec<T1> _item1Codec;
         private readonly IFieldCodec<T2> _item2Codec;
@@ -1127,11 +1057,11 @@ namespace Orleans.Serialization.Codecs
         }
 
         /// <inheritdoc />
-        void IFieldCodec<ValueTuple<T1, T2, T3, T4, T5, T6, T7, T8>>.WriteField<TBufferWriter>(
+        public void WriteField<TBufferWriter>(
             ref Writer<TBufferWriter> writer,
             uint fieldIdDelta,
             Type expectedType,
-            ValueTuple<T1, T2, T3, T4, T5, T6, T7, T8> value)
+            ValueTuple<T1, T2, T3, T4, T5, T6, T7, T8> value) where TBufferWriter : IBufferWriter<byte>
         {
             ReferenceCodec.MarkValueField(writer.Session);
             writer.WriteFieldHeader(fieldIdDelta, expectedType, value.GetType(), WireType.TagDelimited);
@@ -1149,23 +1079,12 @@ namespace Orleans.Serialization.Codecs
         }
 
         /// <inheritdoc />
-        ValueTuple<T1, T2, T3, T4, T5, T6, T7, T8> IFieldCodec<ValueTuple<T1, T2, T3, T4, T5, T6, T7, T8>>.ReadValue<TInput>(ref Reader<TInput> reader,
+        public ValueTuple<T1, T2, T3, T4, T5, T6, T7, T8> ReadValue<TInput>(ref Reader<TInput> reader,
             Field field)
         {
-            if (field.WireType != WireType.TagDelimited)
-            {
-                ValueTupleCodec.ThrowUnsupportedWireTypeException();
-            }
-
+            field.EnsureWireTypeTagDelimited();
             ReferenceCodec.MarkValueField(reader.Session);
-            var item1 = default(T1);
-            var item2 = default(T2);
-            var item3 = default(T3);
-            var item4 = default(T4);
-            var item5 = default(T5);
-            var item6 = default(T6);
-            var item7 = default(T7);
-            var item8 = default(T8);
+            ValueTuple<T1, T2, T3, T4, T5, T6, T7, T8> res = default;
             uint fieldId = 0;
             while (true)
             {
@@ -1178,37 +1097,21 @@ namespace Orleans.Serialization.Codecs
                 fieldId += header.FieldIdDelta;
                 switch (fieldId)
                 {
-                    case 1:
-                        item1 = _item1Codec.ReadValue(ref reader, header);
-                        break;
-                    case 2:
-                        item2 = _item2Codec.ReadValue(ref reader, header);
-                        break;
-                    case 3:
-                        item3 = _item3Codec.ReadValue(ref reader, header);
-                        break;
-                    case 4:
-                        item4 = _item4Codec.ReadValue(ref reader, header);
-                        break;
-                    case 5:
-                        item5 = _item5Codec.ReadValue(ref reader, header);
-                        break;
-                    case 6:
-                        item6 = _item6Codec.ReadValue(ref reader, header);
-                        break;
-                    case 7:
-                        item7 = _item7Codec.ReadValue(ref reader, header);
-                        break;
-                    case 8:
-                        item8 = _item8Codec.ReadValue(ref reader, header);
-                        break;
+                    case 1: res.Item1 = _item1Codec.ReadValue(ref reader, header); break;
+                    case 2: res.Item2 = _item2Codec.ReadValue(ref reader, header); break;
+                    case 3: res.Item3 = _item3Codec.ReadValue(ref reader, header); break;
+                    case 4: res.Item4 = _item4Codec.ReadValue(ref reader, header); break;
+                    case 5: res.Item5 = _item5Codec.ReadValue(ref reader, header); break;
+                    case 6: res.Item6 = _item6Codec.ReadValue(ref reader, header); break;
+                    case 7: res.Item7 = _item7Codec.ReadValue(ref reader, header); break;
+                    case 8: res.Rest = _item8Codec.ReadValue(ref reader, header); break;
                     default:
                         reader.ConsumeUnknownField(header);
                         break;
                 }
             }
 
-            return new ValueTuple<T1, T2, T3, T4, T5, T6, T7, T8>(item1, item2, item3, item4, item5, item6, item7, item8);
+            return res;
         }
     }
 
@@ -1224,7 +1127,7 @@ namespace Orleans.Serialization.Codecs
     /// <typeparam name="T7">The type of the tuple's seventh component.</typeparam>
     /// <typeparam name="T8">The type of the tuple's eighth component.</typeparam>
     [RegisterCopier]
-    public class ValueTupleCopier<T1, T2, T3, T4, T5, T6, T7, T8> : IDeepCopier<ValueTuple<T1, T2, T3, T4, T5, T6, T7, T8>> where T8 : struct
+    public sealed class ValueTupleCopier<T1, T2, T3, T4, T5, T6, T7, T8> : IDeepCopier<ValueTuple<T1, T2, T3, T4, T5, T6, T7, T8>>, IOptionalDeepCopier where T8 : struct
     {
         private readonly IDeepCopier<T1> _copier1;
         private readonly IDeepCopier<T2> _copier2;
@@ -1256,25 +1159,32 @@ namespace Orleans.Serialization.Codecs
             IDeepCopier<T7> copier7,
             IDeepCopier<T8> copier8)
         {
-            _copier1 = copier1;
-            _copier2 = copier2;
-            _copier3 = copier3;
-            _copier4 = copier4;
-            _copier5 = copier5;
-            _copier6 = copier6;
-            _copier7 = copier7;
-            _copier8 = copier8;
+            _copier1 = OrleansGeneratedCodeHelper.GetOptionalCopier(copier1);
+            _copier2 = OrleansGeneratedCodeHelper.GetOptionalCopier(copier2);
+            _copier3 = OrleansGeneratedCodeHelper.GetOptionalCopier(copier3);
+            _copier4 = OrleansGeneratedCodeHelper.GetOptionalCopier(copier4);
+            _copier5 = OrleansGeneratedCodeHelper.GetOptionalCopier(copier5);
+            _copier6 = OrleansGeneratedCodeHelper.GetOptionalCopier(copier6);
+            _copier7 = OrleansGeneratedCodeHelper.GetOptionalCopier(copier7);
+            _copier8 = OrleansGeneratedCodeHelper.GetOptionalCopier(copier8);
         }
 
+        public bool IsShallowCopyable() => _copier1 is null && _copier2 is null && _copier3 is null && _copier4 is null && _copier5 is null && _copier6 is null && _copier7 is null && _copier8 is null;
+
+        object IDeepCopier.DeepCopy(object input, CopyContext context) => IsShallowCopyable() ? input : DeepCopy((ValueTuple<T1, T2, T3, T4, T5, T6, T7, T8>)input, context);
+
         /// <inheritdoc />
-        public ValueTuple<T1, T2, T3, T4, T5, T6, T7, T8> DeepCopy(ValueTuple<T1, T2, T3, T4, T5, T6, T7, T8> input, CopyContext context) => new(
-                _copier1.DeepCopy(input.Item1, context),
-                _copier2.DeepCopy(input.Item2, context),
-                _copier3.DeepCopy(input.Item3, context),
-                _copier4.DeepCopy(input.Item4, context),
-                _copier5.DeepCopy(input.Item5, context),
-                _copier6.DeepCopy(input.Item6, context),
-                _copier7.DeepCopy(input.Item7, context),
-                _copier8.DeepCopy(input.Rest, context));
+        public ValueTuple<T1, T2, T3, T4, T5, T6, T7, T8> DeepCopy(ValueTuple<T1, T2, T3, T4, T5, T6, T7, T8> input, CopyContext context)
+        {
+            if (_copier1 != null) input.Item1 = _copier1.DeepCopy(input.Item1, context);
+            if (_copier2 != null) input.Item2 = _copier2.DeepCopy(input.Item2, context);
+            if (_copier3 != null) input.Item3 = _copier3.DeepCopy(input.Item3, context);
+            if (_copier4 != null) input.Item4 = _copier4.DeepCopy(input.Item4, context);
+            if (_copier5 != null) input.Item5 = _copier5.DeepCopy(input.Item5, context);
+            if (_copier6 != null) input.Item6 = _copier6.DeepCopy(input.Item6, context);
+            if (_copier7 != null) input.Item7 = _copier7.DeepCopy(input.Item7, context);
+            if (_copier8 != null) input.Rest = _copier8.DeepCopy(input.Rest, context);
+            return input;
+        }
     } 
 }

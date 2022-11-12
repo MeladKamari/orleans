@@ -562,15 +562,15 @@ namespace Orleans.Serialization.Buffers
             if (IsReadOnlySequenceInput || IsSpanInput)
             {
                 var pos = _bufferPos;
-                var span = _currentSpan;
-                if ((uint)pos >= (uint)span.Length)
+                if ((uint)pos < (uint)_currentSpan.Length)
                 {
-                    return ReadByteSlow(ref this);
+                    // https://github.com/dotnet/runtime/issues/72004
+                    var result = Unsafe.Add(ref MemoryMarshal.GetReference(_currentSpan), (uint)pos);
+                    _bufferPos = pos + 1;
+                    return result;
                 }
 
-                var result = span[pos];
-                _bufferPos = pos + 1;
-                return result;
+                return ReadByteSlow(ref this);
             }
             else if (_input is ReaderInput readerInput)
             {
@@ -687,7 +687,7 @@ namespace Orleans.Serialization.Buffers
         /// <summary>
         /// Reads the specified number of bytes into the provided writer.
         /// </summary>
-        public void ReadBytes<TBufferWriter>(ref TBufferWriter writer, int count) where TBufferWriter : IBufferWriter<byte>
+        public void ReadBytes<TBufferWriter>(scoped ref TBufferWriter writer, int count) where TBufferWriter : IBufferWriter<byte>
         {
             int chunkSize;
             for (var remaining = count; remaining > 0; remaining -= chunkSize)
@@ -836,22 +836,20 @@ namespace Orleans.Serialization.Buffers
                 ref byte readHead = ref Unsafe.Add(ref MemoryMarshal.GetReference(_currentSpan), pos);
 
                 ulong result = Unsafe.ReadUnaligned<ulong>(ref readHead);
-                var bytesNeeded = BitOperations.TrailingZeroCount(result) + 1;
+                var bytesNeeded = BitOperations.TrailingZeroCount((uint)result) + 1;
+                if (bytesNeeded > 5) ThrowOverflowException();
+                _bufferPos = pos + bytesNeeded;
+                result &= (1UL << (bytesNeeded * 8)) - 1;
                 result >>= bytesNeeded;
-                _bufferPos += bytesNeeded;
-
-                // Mask off invalid data
-                var fullWidthReadMask = ~((ulong)bytesNeeded - 6 + 1);
-                var mask = ((1UL << (bytesNeeded * 7)) - 1) | fullWidthReadMask;
-                result &= mask;
-
-                return (uint)result;
+                return checked((uint)result);
             }
             else
             {
                 return ReadVarUInt32Slow();
             }
         }
+
+        private static void ThrowOverflowException() => throw new OverflowException();
 
         [MethodImpl(MethodImplOptions.NoInlining)]
         private uint ReadVarUInt32Slow()
@@ -872,7 +870,7 @@ namespace Orleans.Serialization.Buffers
             }
 
             result >>= numBytes;
-            return (uint)result;
+            return checked((uint)result);
         }
 
         /// <summary>

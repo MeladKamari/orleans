@@ -12,7 +12,7 @@ namespace Orleans.Serialization.Codecs
     /// Serializer for <see cref="string"/>.
     /// </summary>
     [RegisterSerializer]
-    public sealed class StringCodec : TypedCodecBase<string, StringCodec>, IFieldCodec<string>
+    public sealed class StringCodec : IFieldCodec<string>
     {
         /// <summary>
         /// The codec field type
@@ -37,11 +37,7 @@ namespace Orleans.Serialization.Codecs
                 return ReferenceCodec.ReadReference<string, TInput>(ref reader, field);
             }
 
-            if (field.WireType != WireType.LengthPrefixed)
-            {
-                ThrowUnsupportedWireTypeException(field);
-            }
-
+            field.EnsureWireType(WireType.LengthPrefixed);
             var length = reader.ReadVarUInt32();
 
             string result;
@@ -111,26 +107,5 @@ namespace Orleans.Serialization.Codecs
 #endif
 
         }
-
-        private static void ThrowUnsupportedWireTypeException(Field field) => throw new UnsupportedWireTypeException(
-            $"Only a {nameof(WireType)} value of {WireType.LengthPrefixed} is supported for string fields. {field}");
-    }
-
-    /// <summary>
-    /// Copier for <see cref="string"/>.
-    /// </summary>
-    [RegisterCopier]
-    public sealed class StringCopier : IDeepCopier<string>
-    {
-        /// <summary>
-        /// Creates a copy of the provided input.
-        /// </summary>
-        /// <param name="input">The input.</param>
-        /// <param name="copyContext">The copy context.</param>
-        /// <returns>A copy of the provided value.</returns>
-        public static string DeepCopy(string input, CopyContext copyContext) => input;
-
-        /// <inheritdoc />
-        string IDeepCopier<string>.DeepCopy(string input, CopyContext _) => input;
     }
 }

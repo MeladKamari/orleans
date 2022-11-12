@@ -15,7 +15,7 @@ namespace Orleans.Serialization.Serializers
     /// <typeparam name="TBaseCodec">The partial serializer implementation type.</typeparam>
     public sealed class ConcreteTypeSerializer<TField, TBaseCodec> : IFieldCodec<TField> where TField : class where TBaseCodec : IBaseCodec<TField>
     {
-        private static readonly Type CodecFieldType = typeof(TField);
+        private readonly Type CodecFieldType = typeof(TField);
         private readonly IActivator<TField> _activator;
         private readonly TBaseCodec _serializer;
 
@@ -33,21 +33,20 @@ namespace Orleans.Serialization.Serializers
         /// <inheritdoc/>
         public void WriteField<TBufferWriter>(ref Writer<TBufferWriter> writer, uint fieldIdDelta, Type expectedType, TField value) where TBufferWriter : IBufferWriter<byte>
         {
-            var fieldType = value?.GetType();
-            if (fieldType is null || fieldType == CodecFieldType)
+            if (value is null || value.GetType() == typeof(TField))
             {
                 if (ReferenceCodec.TryWriteReferenceField(ref writer, fieldIdDelta, expectedType, value))
                 {
                     return;
                 }
 
-                writer.WriteStartObject(fieldIdDelta, expectedType, fieldType);
+                writer.WriteStartObject(fieldIdDelta, expectedType, CodecFieldType);
                 _serializer.Serialize(ref writer, value);
                 writer.WriteEndObject();
             }
             else
             {
-                OrleansGeneratedCodeHelper.SerializeUnexpectedType(ref writer, fieldIdDelta, expectedType, value);
+                writer.SerializeUnexpectedType(fieldIdDelta, expectedType, value);
             }
         }
 
@@ -68,7 +67,7 @@ namespace Orleans.Serialization.Serializers
                 return result;
             }
 
-            return OrleansGeneratedCodeHelper.DeserializeUnexpectedType<TInput, TField>(ref reader, field);
+            return reader.DeserializeUnexpectedType<TInput, TField>(ref field);
         }
 
         public TField ReadValueSealed<TInput>(ref Reader<TInput> reader, Field field)

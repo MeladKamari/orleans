@@ -38,7 +38,7 @@ namespace Orleans.Configuration
         /// <summary>
         /// The default value for <see cref="TurnWarningLengthThreshold"/>.
         /// </summary>
-        public static readonly TimeSpan DEFAULT_TURN_WARNING_THRESHOLD = TimeSpan.FromMilliseconds(200);
+        public static readonly TimeSpan DEFAULT_TURN_WARNING_THRESHOLD = TimeSpan.FromMilliseconds(1_000);
 
         /// <summary>
         /// Gets or sets the per work group limit of how many items can be queued up before warnings are generated.
@@ -54,11 +54,5 @@ namespace Orleans.Configuration
         /// Gets or sets the period of time after which to log errors for tasks scheduled to stopped activations.
         /// </summary>
         public TimeSpan StoppedActivationWarningInterval { get; set; } = TimeSpan.FromMinutes(1);
-
-        /// <summary>
-        /// Whether or not to allow reentrancy for calls within the same call chain.
-        /// </summary>
-        public bool AllowCallChainReentrancy { get; set; } = DEFAULT_ALLOW_CALL_CHAIN_REENTRANCY;
-        public const bool DEFAULT_ALLOW_CALL_CHAIN_REENTRANCY = true;
     }
 }

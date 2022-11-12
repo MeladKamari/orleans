@@ -24,8 +24,8 @@ namespace Tester.StreamingTests.BroadcastChannel
         private const string ProviderNameNonFireAndForget = "BroadcastChannelNonFireAndForget";
         private const int CallTimeoutMs = 500;
         private readonly Fixture _fixture;
-        private IBroadcastChannelProvider _provider => _fixture.Client.GetBroadcaseChannelProvider(ProviderName);
-        private IBroadcastChannelProvider _providerNonFireAndForget => _fixture.Client.GetBroadcaseChannelProvider(ProviderNameNonFireAndForget);
+        private IBroadcastChannelProvider _provider => _fixture.Client.GetBroadcastChannelProvider(ProviderName);
+        private IBroadcastChannelProvider _providerNonFireAndForget => _fixture.Client.GetBroadcastChannelProvider(ProviderNameNonFireAndForget);
 
         public class Fixture : BaseTestClusterFixture
         {
@@ -202,7 +202,7 @@ namespace Tester.StreamingTests.BroadcastChannel
                 while (!cts.IsCancellationRequested)
                 {
                     counter = await badGrain.GetOnPublishedCounter();
-                    if (counter == 1) break;
+                    if (counter == 2) break;
                     await Task.Delay(10);
                 }
                 Assert.Equal(2, counter);

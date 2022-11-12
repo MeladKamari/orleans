@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using Orleans.Serialization.Buffers;
 using Orleans.Serialization.Cloning;
 using Orleans.Serialization.GeneratedCodeHelpers;
@@ -14,7 +15,7 @@ namespace Orleans.Serialization.Codecs
     internal sealed class MultiDimensionalArrayCodec<T> : IGeneralizedCodec
     {
         private static readonly Type DimensionFieldType = typeof(int[]);
-        private static readonly Type CodecElementType = typeof(T);
+        private readonly Type CodecElementType = typeof(T);
 
         private readonly IFieldCodec<int[]> _intArrayCodec;
         private readonly IFieldCodec<T> _elementCodec;
@@ -31,7 +32,7 @@ namespace Orleans.Serialization.Codecs
         }
 
         /// <inheritdoc/>
-        void IFieldCodec<object>.WriteField<TBufferWriter>(ref Writer<TBufferWriter> writer, uint fieldIdDelta, Type expectedType, object value)
+        public void WriteField<TBufferWriter>(ref Writer<TBufferWriter> writer, uint fieldIdDelta, Type expectedType, object value) where TBufferWriter : IBufferWriter<byte>
         {
             if (ReferenceCodec.TryWriteReferenceField(ref writer, fieldIdDelta, expectedType, value))
             {
@@ -83,17 +84,14 @@ namespace Orleans.Serialization.Codecs
         }
 
         /// <inheritdoc/>
-        object IFieldCodec<object>.ReadValue<TInput>(ref Reader<TInput> reader, Field field)
+        public object ReadValue<TInput>(ref Reader<TInput> reader, Field field)
         {
             if (field.WireType == WireType.Reference)
             {
                 return ReferenceCodec.ReadReference<T[], TInput>(ref reader, field);
             }
 
-            if (field.WireType != WireType.TagDelimited)
-            {
-                ThrowUnsupportedWireTypeException(field);
-            }
+            field.EnsureWireTypeTagDelimited();
 
             var placeholderReferenceId = ReferenceCodec.CreateRecordPlaceholder(reader.Session);
             Array result = null;
@@ -153,13 +151,10 @@ namespace Orleans.Serialization.Codecs
         }
 
         /// <inheritdoc/>
-        public bool IsSupportedType(Type type) => type.IsArray && type.GetArrayRank() > 1;
+        public bool IsSupportedType(Type type) => type.IsArray && !type.IsSZArray;
 
         private static object ThrowIndexOutOfRangeException(int[] lengths) => throw new IndexOutOfRangeException(
             $"Encountered too many elements in array of type {typeof(T)} with declared lengths {string.Join(", ", lengths)}.");
-
-        private static void ThrowUnsupportedWireTypeException(Field field) => throw new UnsupportedWireTypeException(
-            $"Only a {nameof(WireType)} value of {WireType.TagDelimited} is supported for string fields. {field}");
 
         private static T ThrowLengthsFieldMissing() => throw new RequiredFieldMissingException("Serialized array is missing its lengths field.");
     }
@@ -170,19 +165,8 @@ namespace Orleans.Serialization.Codecs
     /// <typeparam name="T">The array element type.</typeparam>
     internal sealed class MultiDimensionalArrayCopier<T> : IGeneralizedCopier
     {
-        private readonly IDeepCopier<object> _elementCopier;
-
-        /// <summary>
-        /// Initializes a new instance of the <see cref="MultiDimensionalArrayCopier{T}"/> class.
-        /// </summary>
-        /// <param name="elementCopier">The element copier.</param>
-        public MultiDimensionalArrayCopier(IDeepCopier<object> elementCopier)
-        {
-            _elementCopier = OrleansGeneratedCodeHelper.UnwrapService(this, elementCopier);
-        }
-
         /// <inheritdoc/>
-        object IDeepCopier<object>.DeepCopy(object original, CopyContext context)
+        public object DeepCopy(object original, CopyContext context)
         {
             if (context.TryGetCopy<Array>(original, out var result))
             {
@@ -212,7 +196,7 @@ namespace Orleans.Serialization.Codecs
             {
                 for (var i = 0; i < lengths[0]; i++)
                 {
-                    result.SetValue(_elementCopier.DeepCopy(originalArray.GetValue(i), context), i);
+                    result.SetValue(ObjectCopier.DeepCopy(originalArray.GetValue(i), context), i);
                 }
             }
             else if (rank == 2)
@@ -221,7 +205,7 @@ namespace Orleans.Serialization.Codecs
                 {
                     for (var j = 0; j < lengths[1]; j++)
                     {
-                        result.SetValue(_elementCopier.DeepCopy(originalArray.GetValue(i, j), context), i, j);
+                        result.SetValue(ObjectCopier.DeepCopy(originalArray.GetValue(i, j), context), i, j);
                     }
                 }
             }
@@ -245,7 +229,7 @@ namespace Orleans.Serialization.Codecs
                         index[n] = offset;
                     }
 
-                    result.SetValue(_elementCopier.DeepCopy(originalArray.GetValue(index), context), index);
+                    result.SetValue(ObjectCopier.DeepCopy(originalArray.GetValue(index), context), index);
                 }
             }
 
@@ -253,6 +237,6 @@ namespace Orleans.Serialization.Codecs
         }
 
         /// <inheritdoc/>
-        public bool IsSupportedType(Type type) => type.IsArray && type.GetArrayRank() > 1;
+        public bool IsSupportedType(Type type) => type.IsArray && !type.IsSZArray;
     }
 }

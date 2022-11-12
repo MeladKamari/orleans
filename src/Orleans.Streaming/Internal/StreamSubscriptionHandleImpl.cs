@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Newtonsoft.Json;
 using Orleans.Runtime;
 
 namespace Orleans.Streams
@@ -10,13 +11,16 @@ namespace Orleans.Streams
     [GenerateSerializer]
     internal class StreamSubscriptionHandleImpl<T> : StreamSubscriptionHandle<T>, IStreamSubscriptionHandle 
     {
-        [Id(1)]
+        [Id(0)]
+        [JsonProperty]
         private StreamImpl<T> streamImpl;
-        [Id(2)]
+        [Id(1)]
+        [JsonProperty]
         private readonly string filterData;
-        [Id(3)]
+        [Id(2)]
+        [JsonProperty]
         private readonly GuidId subscriptionId;
-        [Id(4)]
+        [Id(3)]
         private readonly bool isRewindable;
 
         [NonSerialized]
@@ -32,6 +36,13 @@ namespace Orleans.Streams
         public override string ProviderName { get { return this.streamImpl.ProviderName; } }
         public override StreamId StreamId { get { return streamImpl.StreamId; } }
         public override Guid HandleId { get { return subscriptionId.Guid; } }
+
+
+        [JsonConstructor]
+        public StreamSubscriptionHandleImpl(GuidId subscriptionId, StreamImpl<T> streamImpl, string filterData)
+            : this(subscriptionId, null, null, streamImpl, null, filterData)
+        {
+        }
 
         public StreamSubscriptionHandleImpl(GuidId subscriptionId, StreamImpl<T> streamImpl)
             : this(subscriptionId, null, null, streamImpl, null, null)
@@ -231,7 +242,7 @@ namespace Orleans.Streams
                 : this.observer.OnErrorAsync(ex);
         }
 
-        internal bool SameStreamId(InternalStreamId streamId)
+        internal bool SameStreamId(QualifiedStreamId streamId)
         {
             return IsValid && streamImpl.InternalStreamId.Equals(streamId);
         }

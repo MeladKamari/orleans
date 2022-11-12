@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Linq;
 using Microsoft.FSharp.Collections;
@@ -17,63 +18,68 @@ namespace Orleans.Serialization
     /// </summary>
     /// <typeparam name="T">The underlying type.</typeparam>
     [RegisterSerializer]
-    public sealed class FSharpOptionCodec<T> : GeneralizedReferenceTypeSurrogateCodec<FSharpOption<T>, FSharpOptionSurrogate<T>>, IDerivedTypeCodec
+    public sealed class FSharpOptionCodec<T> : IFieldCodec<FSharpOption<T>>
     {
+        private readonly Type CodecType = typeof(FSharpOption<T>);
+        private readonly Type CodecFieldType = typeof(T);
+        private readonly IFieldCodec<T> _fieldCodec;
+
         /// <summary>
         /// Initializes a new instance of the <see cref="FSharpOptionCodec{T}"/> class.
         /// </summary>
-        /// <param name="surrogateSerializer">The surrogate serializer.</param>
-        public FSharpOptionCodec(IValueSerializer<FSharpOptionSurrogate<T>> surrogateSerializer) : base(surrogateSerializer)
+        public FSharpOptionCodec(IFieldCodec<T> fieldCodec)
         {
+            _fieldCodec = OrleansGeneratedCodeHelper.UnwrapService(this, fieldCodec);
         }
 
         /// <inheritdoc/>
-        public override FSharpOption<T> ConvertFromSurrogate(ref FSharpOptionSurrogate<T> surrogate)
+        public void WriteField<TBufferWriter>(ref Writer<TBufferWriter> writer, uint fieldIdDelta, Type expectedType, FSharpOption<T> value) where TBufferWriter : IBufferWriter<byte>
         {
-            if (surrogate.IsNone)
+            if (ReferenceCodec.TryWriteReferenceField(ref writer, fieldIdDelta, expectedType, value))
+                return;
+
+            writer.WriteStartObject(fieldIdDelta, expectedType, CodecType);
+            if (FSharpOption<T>.get_IsSome(value))
             {
-                return FSharpOption<T>.None;
+                _fieldCodec.WriteField(ref writer, 0, CodecFieldType, value.Value);
             }
-            else
-            {
-                return FSharpOption<T>.Some(surrogate.Value);
-            }
+            writer.WriteEndObject();
         }
 
         /// <inheritdoc/>
-        public override void ConvertToSurrogate(FSharpOption<T> value, ref FSharpOptionSurrogate<T> surrogate)
+        public FSharpOption<T> ReadValue<TInput>(ref Reader<TInput> reader, Field field)
         {
-            if (value is null || FSharpOption<T>.get_IsNone(value))
+            if (field.WireType == WireType.Reference)
+                return ReferenceCodec.ReadReference<FSharpOption<T>, TInput>(ref reader, field);
+
+            field.EnsureWireTypeTagDelimited();
+
+            var placeholderReferenceId = ReferenceCodec.CreateRecordPlaceholder(reader.Session);
+            var result = FSharpOption<T>.None;
+            uint fieldId = 0;
+            while (true)
             {
-                surrogate.IsNone = true;
+                var header = reader.ReadFieldHeader();
+                if (header.IsEndBaseOrEndObject)
+                {
+                    break;
+                }
+
+                fieldId += header.FieldIdDelta;
+                switch (fieldId)
+                {
+                    case 0:
+                        result = _fieldCodec.ReadValue(ref reader, header);
+                        break;
+                    default:
+                        reader.ConsumeUnknownField(header);
+                        break;
+                }
             }
-            else
-            {
-                surrogate.Value = value.Value;
-            }
+
+            ReferenceCodec.RecordObject(reader.Session, result, placeholderReferenceId);
+            return result;
         }
-    }
-
-    /// <summary>
-    /// Surrogate type used by <see cref="FSharpOptionCodec{T}"/>.
-    /// </summary>
-    /// <typeparam name="T">The underlying option type.</typeparam>
-    /// Serializer for <see cref="FSharpOption{T}" />.
-    [GenerateSerializer]
-    public struct FSharpOptionSurrogate<T>
-    {
-        /// <summary>
-        /// Gets or sets a value indicating whether this instance represents <see cref="FSharpOption{T}.None"/>.
-        /// </summary>
-        /// <value><see langword="true"/> if this instance represents <see cref="FSharpOption{T}.None"/>; otherwise, <see langword="false"/>.</value>
-        [Id(0)]
-        public bool IsNone { get; set; }
-
-        /// <summary>
-        /// Gets or sets the value represented by this instance.
-        /// </summary>
-        [Id(1)]
-        public T Value { get; set; }
     }
 
     /// <summary>
@@ -81,7 +87,7 @@ namespace Orleans.Serialization
     /// </summary>
     /// <typeparam name="T">The underlying value type of the option type.</typeparam>
     [RegisterCopier]
-    public sealed class FSharpOptionCopier<T> : IDeepCopier<FSharpOption<T>>, IDerivedTypeCopier
+    public sealed class FSharpOptionCopier<T> : IDeepCopier<FSharpOption<T>>
     {
         private IDeepCopier<T> _valueCopier;
 
@@ -97,20 +103,17 @@ namespace Orleans.Serialization
         /// <inheritdoc/>
         public FSharpOption<T> DeepCopy(FSharpOption<T> input, CopyContext context)
         {
+            if (input is null || FSharpOption<T>.get_IsNone(input))
+            {
+                return input;
+            }
+
             if (context.TryGetCopy<FSharpOption<T>>(input, out var result))
             {
                 return result;
             }
 
-            if (FSharpOption<T>.get_IsNone(input))
-            {
-                result = input;
-            }
-            else
-            {
-                result = FSharpOption<T>.Some(_valueCopier.DeepCopy(input.Value, context));
-            }
-
+            result = _valueCopier.DeepCopy(input.Value, context);
             context.RecordCopy(input, result);
             return result;
         }
@@ -140,10 +143,9 @@ namespace Orleans.Serialization
             ReferenceCodec.MarkValueField(writer.Session);
 
             writer.WriteFieldHeader(fieldIdDelta, expectedType, typeof(FSharpValueOption<T>), WireType.TagDelimited);
-            BoolCodec.WriteField(ref writer, 0, typeof(bool), value.IsSome);
             if (value.IsSome)
             {
-                _valueCodec.WriteField(ref writer, 1, typeof(T), value.Value);
+                _valueCodec.WriteField(ref writer, 0, typeof(T), value.Value);
             }
 
             writer.WriteEndObject();
@@ -152,14 +154,9 @@ namespace Orleans.Serialization
         /// <inheritdoc/>
         FSharpValueOption<T> IFieldCodec<FSharpValueOption<T>>.ReadValue<TInput>(ref Reader<TInput> reader, Field field)
         {
-            if (field.WireType != WireType.TagDelimited)
-            {
-                ThrowUnsupportedWireTypeException();
-            }
-
+            field.EnsureWireTypeTagDelimited();
             ReferenceCodec.MarkValueField(reader.Session);
-            var isSome = false;
-            T result = default;
+            var result = FSharpValueOption<T>.None;
             uint fieldId = 0;
             while (true)
             {
@@ -173,9 +170,6 @@ namespace Orleans.Serialization
                 switch (fieldId)
                 {
                     case 0:
-                        isSome = BoolCodec.ReadValue(ref reader, header);
-                        break;
-                    case 1:
                         result = _valueCodec.ReadValue(ref reader, header);
                         break;
                     default:
@@ -184,16 +178,8 @@ namespace Orleans.Serialization
                 }
             }
 
-            if (isSome)
-            {
-                return FSharpValueOption<T>.Some(result);
-            }
-
-            return FSharpValueOption<T>.None;
+            return result;
         }
-
-        internal static void ThrowUnsupportedWireTypeException() => throw new UnsupportedWireTypeException(
-            $"Only a {nameof(WireType)} value of {WireType.TagDelimited} is supported");
     }
 
     /// <summary>
@@ -263,14 +249,8 @@ namespace Orleans.Serialization
 
             switch (value)
             {
-                case FSharpChoice<T1, T2>.Choice1Of2 c1:
-                    Int32Codec.WriteField(ref writer, 0, typeof(int), 1);
-                    _item1Codec.WriteField(ref writer, 1, ElementType1, c1.Item);
-                    break;
-                case FSharpChoice<T1, T2>.Choice2Of2 c2:
-                    Int32Codec.WriteField(ref writer, 0, typeof(int), 2);
-                    _item2Codec.WriteField(ref writer, 1, ElementType2, c2.Item);
-                    break;
+                case FSharpChoice<T1, T2>.Choice1Of2 c1: _item1Codec.WriteField(ref writer, 1, ElementType1, c1.Item); break;
+                case FSharpChoice<T1, T2>.Choice2Of2 c2: _item2Codec.WriteField(ref writer, 2, ElementType2, c2.Item); break;
             }
 
             writer.WriteEndObject();
@@ -283,14 +263,10 @@ namespace Orleans.Serialization
                 return ReferenceCodec.ReadReference<FSharpChoice<T1, T2>, TInput>(ref reader, field);
             }
 
-            if (field.WireType != WireType.TagDelimited)
-            {
-                FSharpValueOptionCodec<int>.ThrowUnsupportedWireTypeException();
-            }
+            field.EnsureWireTypeTagDelimited();
 
             var placeholderReferenceId = ReferenceCodec.CreateRecordPlaceholder(reader.Session);
             FSharpChoice<T1, T2> result = default;
-            var tag = 0;
             uint fieldId = 0;
             while (true)
             {
@@ -303,17 +279,8 @@ namespace Orleans.Serialization
                 fieldId += header.FieldIdDelta;
                 switch (fieldId)
                 {
-                    case 0:
-                        tag = Int32Codec.ReadValue(ref reader, header);
-                        break;
-                    case 1:
-                        result = tag switch
-                        {
-                            1 => FSharpChoice<T1, T2>.NewChoice1Of2(_item1Codec.ReadValue(ref reader, header)),
-                            2 => FSharpChoice<T1, T2>.NewChoice2Of2(_item2Codec.ReadValue(ref reader, header)),
-                            _ => throw new NotSupportedException($"Unexpected choice {tag}")
-                        };
-                        break;
+                    case 1: result = FSharpChoice<T1, T2>.NewChoice1Of2(_item1Codec.ReadValue(ref reader, header)); break;
+                    case 2: result = FSharpChoice<T1, T2>.NewChoice2Of2(_item2Codec.ReadValue(ref reader, header)); break;
                     default:
                         reader.ConsumeUnknownField(header);
                         break;
@@ -387,18 +354,9 @@ namespace Orleans.Serialization
 
             switch (value)
             {
-                case FSharpChoice<T1, T2, T3>.Choice1Of3 c1:
-                    Int32Codec.WriteField(ref writer, 0, typeof(int), 1);
-                    _item1Codec.WriteField(ref writer, 1, ElementType1, c1.Item);
-                    break;
-                case FSharpChoice<T1, T2, T3>.Choice2Of3 c2:
-                    Int32Codec.WriteField(ref writer, 0, typeof(int), 2);
-                    _item2Codec.WriteField(ref writer, 1, ElementType2, c2.Item);
-                    break;
-                case FSharpChoice<T1, T2, T3>.Choice3Of3 c3:
-                    Int32Codec.WriteField(ref writer, 0, typeof(int), 3);
-                    _item3Codec.WriteField(ref writer, 1, ElementType3, c3.Item);
-                    break;
+                case FSharpChoice<T1, T2, T3>.Choice1Of3 c1: _item1Codec.WriteField(ref writer, 1, ElementType1, c1.Item); break;
+                case FSharpChoice<T1, T2, T3>.Choice2Of3 c2: _item2Codec.WriteField(ref writer, 2, ElementType2, c2.Item); break;
+                case FSharpChoice<T1, T2, T3>.Choice3Of3 c3: _item3Codec.WriteField(ref writer, 3, ElementType3, c3.Item); break;
             }
 
             writer.WriteEndObject();
@@ -411,14 +369,10 @@ namespace Orleans.Serialization
                 return ReferenceCodec.ReadReference<FSharpChoice<T1, T2, T3>, TInput>(ref reader, field);
             }
 
-            if (field.WireType != WireType.TagDelimited)
-            {
-                FSharpValueOptionCodec<int>.ThrowUnsupportedWireTypeException();
-            }
+            field.EnsureWireTypeTagDelimited();
 
             var placeholderReferenceId = ReferenceCodec.CreateRecordPlaceholder(reader.Session);
             FSharpChoice<T1, T2, T3> result = default;
-            var tag = 0;
             uint fieldId = 0;
             while (true)
             {
@@ -431,18 +385,9 @@ namespace Orleans.Serialization
                 fieldId += header.FieldIdDelta;
                 switch (fieldId)
                 {
-                    case 0:
-                        tag = Int32Codec.ReadValue(ref reader, header);
-                        break;
-                    case 1:
-                        result = tag switch
-                        {
-                            1 => FSharpChoice<T1, T2, T3>.NewChoice1Of3(_item1Codec.ReadValue(ref reader, header)),
-                            2 => FSharpChoice<T1, T2, T3>.NewChoice2Of3(_item2Codec.ReadValue(ref reader, header)),
-                            3 => FSharpChoice<T1, T2, T3>.NewChoice3Of3(_item3Codec.ReadValue(ref reader, header)),
-                            _ => throw new NotSupportedException($"Unexpected choice {tag}")
-                        };
-                        break;
+                    case 1: result = FSharpChoice<T1, T2, T3>.NewChoice1Of3(_item1Codec.ReadValue(ref reader, header)); break;
+                    case 2: result = FSharpChoice<T1, T2, T3>.NewChoice2Of3(_item2Codec.ReadValue(ref reader, header)); break;
+                    case 3: result = FSharpChoice<T1, T2, T3>.NewChoice3Of3(_item3Codec.ReadValue(ref reader, header)); break;
                     default:
                         reader.ConsumeUnknownField(header);
                         break;
@@ -526,22 +471,10 @@ namespace Orleans.Serialization
 
             switch (value)
             {
-                case FSharpChoice<T1, T2, T3, T4>.Choice1Of4 c1:
-                    Int32Codec.WriteField(ref writer, 0, typeof(int), 1);
-                    _item1Codec.WriteField(ref writer, 1, ElementType1, c1.Item);
-                    break;
-                case FSharpChoice<T1, T2, T3, T4>.Choice2Of4 c2:
-                    Int32Codec.WriteField(ref writer, 0, typeof(int), 2);
-                    _item2Codec.WriteField(ref writer, 1, ElementType2, c2.Item);
-                    break;
-                case FSharpChoice<T1, T2, T3, T4>.Choice3Of4 c3:
-                    Int32Codec.WriteField(ref writer, 0, typeof(int), 3);
-                    _item3Codec.WriteField(ref writer, 1, ElementType3, c3.Item);
-                    break;
-                case FSharpChoice<T1, T2, T3, T4>.Choice4Of4 c4:
-                    Int32Codec.WriteField(ref writer, 0, typeof(int), 4);
-                    _item4Codec.WriteField(ref writer, 1, ElementType4, c4.Item);
-                    break;
+                case FSharpChoice<T1, T2, T3, T4>.Choice1Of4 c1: _item1Codec.WriteField(ref writer, 1, ElementType1, c1.Item); break;
+                case FSharpChoice<T1, T2, T3, T4>.Choice2Of4 c2: _item2Codec.WriteField(ref writer, 2, ElementType2, c2.Item); break;
+                case FSharpChoice<T1, T2, T3, T4>.Choice3Of4 c3: _item3Codec.WriteField(ref writer, 3, ElementType3, c3.Item); break;
+                case FSharpChoice<T1, T2, T3, T4>.Choice4Of4 c4: _item4Codec.WriteField(ref writer, 4, ElementType4, c4.Item); break;
             }
 
             writer.WriteEndObject();
@@ -554,14 +487,10 @@ namespace Orleans.Serialization
                 return ReferenceCodec.ReadReference<FSharpChoice<T1, T2, T3, T4>, TInput>(ref reader, field);
             }
 
-            if (field.WireType != WireType.TagDelimited)
-            {
-                FSharpValueOptionCodec<int>.ThrowUnsupportedWireTypeException();
-            }
+            field.EnsureWireTypeTagDelimited();
 
             var placeholderReferenceId = ReferenceCodec.CreateRecordPlaceholder(reader.Session);
             FSharpChoice<T1, T2, T3, T4> result = default;
-            var tag = 0;
             uint fieldId = 0;
             while (true)
             {
@@ -574,19 +503,10 @@ namespace Orleans.Serialization
                 fieldId += header.FieldIdDelta;
                 switch (fieldId)
                 {
-                    case 0:
-                        tag = Int32Codec.ReadValue(ref reader, header);
-                        break;
-                    case 1:
-                        result = tag switch
-                        {
-                            1 => FSharpChoice<T1, T2, T3, T4>.NewChoice1Of4(_item1Codec.ReadValue(ref reader, header)),
-                            2 => FSharpChoice<T1, T2, T3, T4>.NewChoice2Of4(_item2Codec.ReadValue(ref reader, header)),
-                            3 => FSharpChoice<T1, T2, T3, T4>.NewChoice3Of4(_item3Codec.ReadValue(ref reader, header)),
-                            4 => FSharpChoice<T1, T2, T3, T4>.NewChoice4Of4(_item4Codec.ReadValue(ref reader, header)),
-                            _ => throw new NotSupportedException($"Unexpected choice {tag}")
-                        };
-                        break;
+                    case 1: result = FSharpChoice<T1, T2, T3, T4>.NewChoice1Of4(_item1Codec.ReadValue(ref reader, header)); break;
+                    case 2: result = FSharpChoice<T1, T2, T3, T4>.NewChoice2Of4(_item2Codec.ReadValue(ref reader, header)); break;
+                    case 3: result = FSharpChoice<T1, T2, T3, T4>.NewChoice3Of4(_item3Codec.ReadValue(ref reader, header)); break;
+                    case 4: result = FSharpChoice<T1, T2, T3, T4>.NewChoice4Of4(_item4Codec.ReadValue(ref reader, header)); break;
                     default:
                         reader.ConsumeUnknownField(header);
                         break;
@@ -678,26 +598,11 @@ namespace Orleans.Serialization
 
             switch (value)
             {
-                case FSharpChoice<T1, T2, T3, T4, T5>.Choice1Of5 c1:
-                    Int32Codec.WriteField(ref writer, 0, typeof(int), 1);
-                    _item1Codec.WriteField(ref writer, 1, ElementType1, c1.Item);
-                    break;
-                case FSharpChoice<T1, T2, T3, T4, T5>.Choice2Of5 c2:
-                    Int32Codec.WriteField(ref writer, 0, typeof(int), 2);
-                    _item2Codec.WriteField(ref writer, 1, ElementType2, c2.Item);
-                    break;
-                case FSharpChoice<T1, T2, T3, T4, T5>.Choice3Of5 c3:
-                    Int32Codec.WriteField(ref writer, 0, typeof(int), 3);
-                    _item3Codec.WriteField(ref writer, 1, ElementType3, c3.Item);
-                    break;
-                case FSharpChoice<T1, T2, T3, T4, T5>.Choice4Of5 c4:
-                    Int32Codec.WriteField(ref writer, 0, typeof(int), 4);
-                    _item4Codec.WriteField(ref writer, 1, ElementType4, c4.Item);
-                    break;
-                case FSharpChoice<T1, T2, T3, T4, T5>.Choice5Of5 c5:
-                    Int32Codec.WriteField(ref writer, 0, typeof(int), 5);
-                    _item5Codec.WriteField(ref writer, 1, ElementType5, c5.Item);
-                    break;
+                case FSharpChoice<T1, T2, T3, T4, T5>.Choice1Of5 c1: _item1Codec.WriteField(ref writer, 1, ElementType1, c1.Item); break;
+                case FSharpChoice<T1, T2, T3, T4, T5>.Choice2Of5 c2: _item2Codec.WriteField(ref writer, 2, ElementType2, c2.Item); break;
+                case FSharpChoice<T1, T2, T3, T4, T5>.Choice3Of5 c3: _item3Codec.WriteField(ref writer, 3, ElementType3, c3.Item); break;
+                case FSharpChoice<T1, T2, T3, T4, T5>.Choice4Of5 c4: _item4Codec.WriteField(ref writer, 4, ElementType4, c4.Item); break;
+                case FSharpChoice<T1, T2, T3, T4, T5>.Choice5Of5 c5: _item5Codec.WriteField(ref writer, 5, ElementType5, c5.Item); break;
             }
 
             writer.WriteEndObject();
@@ -710,14 +615,10 @@ namespace Orleans.Serialization
                 return ReferenceCodec.ReadReference<FSharpChoice<T1, T2, T3, T4, T5>, TInput>(ref reader, field);
             }
 
-            if (field.WireType != WireType.TagDelimited)
-            {
-                FSharpValueOptionCodec<int>.ThrowUnsupportedWireTypeException();
-            }
+            field.EnsureWireTypeTagDelimited();
 
             var placeholderReferenceId = ReferenceCodec.CreateRecordPlaceholder(reader.Session);
             FSharpChoice<T1, T2, T3, T4, T5> result = default;
-            var tag = 0;
             uint fieldId = 0;
             while (true)
             {
@@ -730,20 +631,11 @@ namespace Orleans.Serialization
                 fieldId += header.FieldIdDelta;
                 switch (fieldId)
                 {
-                    case 0:
-                        tag = Int32Codec.ReadValue(ref reader, header);
-                        break;
-                    case 1:
-                        result = tag switch
-                        {
-                            1 => FSharpChoice<T1, T2, T3, T4, T5>.NewChoice1Of5(_item1Codec.ReadValue(ref reader, header)),
-                            2 => FSharpChoice<T1, T2, T3, T4, T5>.NewChoice2Of5(_item2Codec.ReadValue(ref reader, header)),
-                            3 => FSharpChoice<T1, T2, T3, T4, T5>.NewChoice3Of5(_item3Codec.ReadValue(ref reader, header)),
-                            4 => FSharpChoice<T1, T2, T3, T4, T5>.NewChoice4Of5(_item4Codec.ReadValue(ref reader, header)),
-                            5 => FSharpChoice<T1, T2, T3, T4, T5>.NewChoice5Of5(_item5Codec.ReadValue(ref reader, header)),
-                            _ => throw new NotSupportedException($"Unexpected choice {tag}")
-                        };
-                        break;
+                    case 1: result = FSharpChoice<T1, T2, T3, T4, T5>.NewChoice1Of5(_item1Codec.ReadValue(ref reader, header)); break;
+                    case 2: result = FSharpChoice<T1, T2, T3, T4, T5>.NewChoice2Of5(_item2Codec.ReadValue(ref reader, header)); break;
+                    case 3: result = FSharpChoice<T1, T2, T3, T4, T5>.NewChoice3Of5(_item3Codec.ReadValue(ref reader, header)); break;
+                    case 4: result = FSharpChoice<T1, T2, T3, T4, T5>.NewChoice4Of5(_item4Codec.ReadValue(ref reader, header)); break;
+                    case 5: result = FSharpChoice<T1, T2, T3, T4, T5>.NewChoice5Of5(_item5Codec.ReadValue(ref reader, header)); break;
                     default:
                         reader.ConsumeUnknownField(header);
                         break;
@@ -843,30 +735,12 @@ namespace Orleans.Serialization
 
             switch (value)
             {
-                case FSharpChoice<T1, T2, T3, T4, T5, T6>.Choice1Of6 c1:
-                    Int32Codec.WriteField(ref writer, 0, typeof(int), 1);
-                    _item1Codec.WriteField(ref writer, 1, ElementType1, c1.Item);
-                    break;
-                case FSharpChoice<T1, T2, T3, T4, T5, T6>.Choice2Of6 c2:
-                    Int32Codec.WriteField(ref writer, 0, typeof(int), 2);
-                    _item2Codec.WriteField(ref writer, 1, ElementType2, c2.Item);
-                    break;
-                case FSharpChoice<T1, T2, T3, T4, T5, T6>.Choice3Of6 c3:
-                    Int32Codec.WriteField(ref writer, 0, typeof(int), 3);
-                    _item3Codec.WriteField(ref writer, 1, ElementType3, c3.Item);
-                    break;
-                case FSharpChoice<T1, T2, T3, T4, T5, T6>.Choice4Of6 c4:
-                    Int32Codec.WriteField(ref writer, 0, typeof(int), 4);
-                    _item4Codec.WriteField(ref writer, 1, ElementType4, c4.Item);
-                    break;
-                case FSharpChoice<T1, T2, T3, T4, T5, T6>.Choice5Of6 c5:
-                    Int32Codec.WriteField(ref writer, 0, typeof(int), 5);
-                    _item5Codec.WriteField(ref writer, 1, ElementType5, c5.Item);
-                    break;
-                case FSharpChoice<T1, T2, T3, T4, T5, T6>.Choice6Of6 c6:
-                    Int32Codec.WriteField(ref writer, 0, typeof(int), 6);
-                    _item6Codec.WriteField(ref writer, 1, ElementType6, c6.Item);
-                    break;
+                case FSharpChoice<T1, T2, T3, T4, T5, T6>.Choice1Of6 c1: _item1Codec.WriteField(ref writer, 1, ElementType1, c1.Item); break;
+                case FSharpChoice<T1, T2, T3, T4, T5, T6>.Choice2Of6 c2: _item2Codec.WriteField(ref writer, 2, ElementType2, c2.Item); break;
+                case FSharpChoice<T1, T2, T3, T4, T5, T6>.Choice3Of6 c3: _item3Codec.WriteField(ref writer, 3, ElementType3, c3.Item); break;
+                case FSharpChoice<T1, T2, T3, T4, T5, T6>.Choice4Of6 c4: _item4Codec.WriteField(ref writer, 4, ElementType4, c4.Item); break;
+                case FSharpChoice<T1, T2, T3, T4, T5, T6>.Choice5Of6 c5: _item5Codec.WriteField(ref writer, 5, ElementType5, c5.Item); break;
+                case FSharpChoice<T1, T2, T3, T4, T5, T6>.Choice6Of6 c6: _item6Codec.WriteField(ref writer, 6, ElementType6, c6.Item); break;
             }
 
             writer.WriteEndObject();
@@ -879,14 +753,10 @@ namespace Orleans.Serialization
                 return ReferenceCodec.ReadReference<FSharpChoice<T1, T2, T3, T4, T5, T6>, TInput>(ref reader, field);
             }
 
-            if (field.WireType != WireType.TagDelimited)
-            {
-                FSharpValueOptionCodec<int>.ThrowUnsupportedWireTypeException();
-            }
+            field.EnsureWireTypeTagDelimited();
 
             var placeholderReferenceId = ReferenceCodec.CreateRecordPlaceholder(reader.Session);
             FSharpChoice<T1, T2, T3, T4, T5, T6> result = default;
-            var tag = 0;
             uint fieldId = 0;
             while (true)
             {
@@ -899,21 +769,12 @@ namespace Orleans.Serialization
                 fieldId += header.FieldIdDelta;
                 switch (fieldId)
                 {
-                    case 0:
-                        tag = Int32Codec.ReadValue(ref reader, header);
-                        break;
-                    case 1:
-                        result = tag switch
-                        {
-                            1 => FSharpChoice<T1, T2, T3, T4, T5, T6>.NewChoice1Of6(_item1Codec.ReadValue(ref reader, header)),
-                            2 => FSharpChoice<T1, T2, T3, T4, T5, T6>.NewChoice2Of6(_item2Codec.ReadValue(ref reader, header)),
-                            3 => FSharpChoice<T1, T2, T3, T4, T5, T6>.NewChoice3Of6(_item3Codec.ReadValue(ref reader, header)),
-                            4 => FSharpChoice<T1, T2, T3, T4, T5, T6>.NewChoice4Of6(_item4Codec.ReadValue(ref reader, header)),
-                            5 => FSharpChoice<T1, T2, T3, T4, T5, T6>.NewChoice5Of6(_item5Codec.ReadValue(ref reader, header)),
-                            6 => FSharpChoice<T1, T2, T3, T4, T5, T6>.NewChoice6Of6(_item6Codec.ReadValue(ref reader, header)),
-                            _ => throw new NotSupportedException($"Unexpected choice {tag}")
-                        };
-                        break;
+                    case 1: result = FSharpChoice<T1, T2, T3, T4, T5, T6>.NewChoice1Of6(_item1Codec.ReadValue(ref reader, header)); break;
+                    case 2: result = FSharpChoice<T1, T2, T3, T4, T5, T6>.NewChoice2Of6(_item2Codec.ReadValue(ref reader, header)); break;
+                    case 3: result = FSharpChoice<T1, T2, T3, T4, T5, T6>.NewChoice3Of6(_item3Codec.ReadValue(ref reader, header)); break;
+                    case 4: result = FSharpChoice<T1, T2, T3, T4, T5, T6>.NewChoice4Of6(_item4Codec.ReadValue(ref reader, header)); break;
+                    case 5: result = FSharpChoice<T1, T2, T3, T4, T5, T6>.NewChoice5Of6(_item5Codec.ReadValue(ref reader, header)); break;
+                    case 6: result = FSharpChoice<T1, T2, T3, T4, T5, T6>.NewChoice6Of6(_item6Codec.ReadValue(ref reader, header)); break;
                     default:
                         reader.ConsumeUnknownField(header);
                         break;
@@ -1197,8 +1058,8 @@ namespace Orleans.Serialization
     [RegisterSerializer]
     public class FSharpResultCodec<T, TError> : IFieldCodec<FSharpResult<T, TError>>, IDerivedTypeCodec
     {
-        private static readonly Type ElementType1 = typeof(T);
-        private static readonly Type ElementType2 = typeof(TError);
+        private readonly Type ElementType1 = typeof(T);
+        private readonly Type ElementType2 = typeof(TError);
 
         private readonly IFieldCodec<T> _item1Codec;
         private readonly IFieldCodec<TError> _item2Codec;
@@ -1211,17 +1072,16 @@ namespace Orleans.Serialization
 
         void IFieldCodec<FSharpResult<T, TError>>.WriteField<TBufferWriter>(ref Writer<TBufferWriter> writer, uint fieldIdDelta, Type expectedType, FSharpResult<T, TError> value)
         {
+            ReferenceCodec.MarkValueField(writer.Session);
             writer.WriteFieldHeader(fieldIdDelta, expectedType, typeof(FSharpResult<T, TError>), WireType.TagDelimited);
 
             if (value.IsError)
             {
-                BoolCodec.WriteField(ref writer, 0, typeof(bool), true);
-                _item2Codec.WriteField(ref writer, 1, typeof(TError), value.ErrorValue);
+                _item2Codec.WriteField(ref writer, 2, ElementType2, value.ErrorValue);
             }
             else
             {
-                BoolCodec.WriteField(ref writer, 0, typeof(bool), true);
-                _item1Codec.WriteField(ref writer, 1, typeof(T), value.ResultValue);
+                _item1Codec.WriteField(ref writer, 1, ElementType1, value.ResultValue);
             }
 
             writer.WriteEndObject();
@@ -1229,13 +1089,9 @@ namespace Orleans.Serialization
 
         FSharpResult<T, TError> IFieldCodec<FSharpResult<T, TError>>.ReadValue<TInput>(ref Reader<TInput> reader, Field field)
         {
-            if (field.WireType != WireType.TagDelimited)
-            {
-                FSharpValueOptionCodec<int>.ThrowUnsupportedWireTypeException();
-            }
-
+            field.EnsureWireTypeTagDelimited();
             ReferenceCodec.MarkValueField(reader.Session);
-            var isError = false;
+            FSharpResult<T, TError> result = default;
             uint fieldId = 0;
             while (true)
             {
@@ -1248,25 +1104,15 @@ namespace Orleans.Serialization
                 fieldId += header.FieldIdDelta;
                 switch (fieldId)
                 {
-                    case 0:
-                        isError = BoolCodec.ReadValue(ref reader, header);
-                        break;
-                    case 1:
-                        if (isError)
-                        {
-                            return FSharpResult<T, TError>.NewError(_item2Codec.ReadValue(ref reader, header));
-                        }
-                        else
-                        {
-                            return FSharpResult<T, TError>.NewOk(_item1Codec.ReadValue(ref reader, header));
-                        }
+                    case 1: result = FSharpResult<T, TError>.NewOk(_item1Codec.ReadValue(ref reader, header)); break;
+                    case 2: result = FSharpResult<T, TError>.NewError(_item2Codec.ReadValue(ref reader, header)); break;
                     default:
                         reader.ConsumeUnknownField(header);
                         break;
                 }
             }
 
-            throw new NotSupportedException("Cannot deserialize instance without value field");
+            return result;
         }
     }
     

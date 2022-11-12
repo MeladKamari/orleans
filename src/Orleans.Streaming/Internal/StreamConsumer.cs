@@ -85,7 +85,7 @@ namespace Orleans.Streams
             if (batchObserver is GrainReference)
                 throw new ArgumentException("On-behalf subscription via grain references is not supported. Only passing of object references is allowed.", nameof(batchObserver));
 
-            _ = RequestContextExtensions.SuppressCurrentCallChainFlow();
+            using var _ = RequestContext.SuppressCallChainReentrancy();
 
             if (logger.IsEnabled(LogLevel.Debug)) logger.LogDebug("Subscribe Token={Token}", token);
             await BindExtensionLazy();
@@ -93,7 +93,7 @@ namespace Orleans.Streams
             if (logger.IsEnabled(LogLevel.Debug)) logger.LogDebug("Subscribe - Connecting to Rendezvous {PubSub} My GrainRef={GrainReference} Token={Token}",
                 pubSub, myGrainReference, token);
 
-            GuidId subscriptionId = pubSub.CreateSubscriptionId(stream.InternalStreamId, myGrainReference);
+            GuidId subscriptionId = pubSub.CreateSubscriptionId(stream.InternalStreamId, myGrainReference.GetGrainId());
 
             // Optimistic Concurrency: 
             // In general, we should first register the subsription with the pubsub (pubSub.RegisterConsumer)
@@ -110,7 +110,7 @@ namespace Orleans.Streams
             var subriptionHandle = myExtension.SetObserver(subscriptionId, stream, observer, batchObserver, token, filterData);
             try
             {
-                await pubSub.RegisterConsumer(subscriptionId, stream.InternalStreamId, myGrainReference, filterData);
+                await pubSub.RegisterConsumer(subscriptionId, stream.InternalStreamId, myGrainReference.GetGrainId(), filterData);
                 return subriptionHandle;
             }
             catch (Exception)
@@ -143,7 +143,7 @@ namespace Orleans.Streams
             IAsyncBatchObserver<T> batchObserver,
             StreamSequenceToken token = null)
         {
-            _ = RequestContextExtensions.SuppressCurrentCallChainFlow();
+            using var _ = RequestContext.SuppressCallChainReentrancy();
 
             StreamSubscriptionHandleImpl<T> oldHandleImpl = CheckHandleValidity(handle);
 
@@ -166,7 +166,7 @@ namespace Orleans.Streams
 
         public async Task UnsubscribeAsync(StreamSubscriptionHandle<T> handle)
         {
-            _ = RequestContextExtensions.SuppressCurrentCallChainFlow();
+            using var _ = RequestContext.SuppressCallChainReentrancy();
 
             await BindExtensionLazy();
 
@@ -187,18 +187,18 @@ namespace Orleans.Streams
 
         public async Task<IList<StreamSubscriptionHandle<T>>> GetAllSubscriptions()
         {
-            _ = RequestContextExtensions.SuppressCurrentCallChainFlow();
+            using var _ = RequestContext.SuppressCallChainReentrancy();
 
             await BindExtensionLazy();
 
-            List<StreamSubscription> subscriptions= await pubSub.GetAllSubscriptions(stream.InternalStreamId, myGrainReference);
+            List<StreamSubscription> subscriptions= await pubSub.GetAllSubscriptions(stream.InternalStreamId, myGrainReference.GetGrainId());
             return subscriptions.Select(sub => new StreamSubscriptionHandleImpl<T>(GuidId.GetGuidId(sub.SubscriptionId), stream))
                                   .ToList<StreamSubscriptionHandle<T>>();
         }
 
         public async Task Cleanup()
         {
-            _ = RequestContextExtensions.SuppressCurrentCallChainFlow();
+            using var _ = RequestContext.SuppressCallChainReentrancy();
 
             if (logger.IsEnabled(LogLevel.Debug)) logger.LogDebug("Cleanup() called");
             if (myExtension == null)

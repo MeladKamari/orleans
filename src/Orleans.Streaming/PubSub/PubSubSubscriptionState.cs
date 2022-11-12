@@ -7,9 +7,9 @@ namespace Orleans.Streams
     [Serializable]
     [JsonObject(MemberSerialization.OptIn)]
     [GenerateSerializer]
-    internal sealed class PubSubSubscriptionState : IEquatable<PubSubSubscriptionState>
+    public sealed class PubSubSubscriptionState : IEquatable<PubSubSubscriptionState>
     {
-        internal enum SubscriptionStates
+        public enum SubscriptionStates
         {
             Active,
             Faulted,
@@ -19,28 +19,25 @@ namespace Orleans.Streams
         // These fields have to be public non-readonly for JSonSerialization to work!
         // Implement ISerializable if changing any of them to readonly
         [JsonProperty]
-        [Id(1)]
+        [Id(0)]
         public GuidId SubscriptionId;
 
         [JsonProperty]
+        [Id(1)]
+        public QualifiedStreamId Stream;
+
+        [JsonProperty]
         [Id(2)]
-        public InternalStreamId Stream;
+        public GrainId Consumer; // the field needs to be of a public type, otherwise we will not generate an Orleans serializer for that class.
 
         [JsonProperty]
         [Id(3)]
-        public GrainReference consumerReference; // the field needs to be of a public type, otherwise we will not generate an Orleans serializer for that class.
-
-        [JsonProperty]
-        [Id(4)]
         public string FilterData; // Serialized func info
 
         [JsonProperty]
-        [Id(5)]
+        [Id(4)]
         public SubscriptionStates state;
 
-        // This property does not need to be Json serialized, since we already have producerReference.
-        [JsonIgnore]
-        public IStreamConsumerExtension Consumer { get { return consumerReference as IStreamConsumerExtension; } }
         [JsonIgnore]
         public bool IsFaulted { get { return state == SubscriptionStates.Faulted; } }
 
@@ -48,12 +45,12 @@ namespace Orleans.Streams
         // Implement ISerializable if changing it to non-public
         public PubSubSubscriptionState(
             GuidId subscriptionId,
-            InternalStreamId streamId,
-            IStreamConsumerExtension streamConsumer)
+            QualifiedStreamId streamId,
+            GrainId streamConsumer)
         {
             SubscriptionId = subscriptionId;
             Stream = streamId;
-            consumerReference = streamConsumer as GrainReference;
+            Consumer = streamConsumer;
             state = SubscriptionStates.Active;
         }
 

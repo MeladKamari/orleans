@@ -16,22 +16,22 @@ namespace Orleans.Streams
     [GenerateSerializer]
     internal sealed class StreamConsumerData
     {
-        [Id(1)]
+        [Id(0)]
         public GuidId SubscriptionId;
+        [Id(1)]
+        public QualifiedStreamId StreamId;
         [Id(2)]
-        public InternalStreamId StreamId;
-        [Id(3)]
         public IStreamConsumerExtension StreamConsumer;
-        [Id(4)]
+        [Id(3)]
         public StreamConsumerDataState State = StreamConsumerDataState.Inactive;
-        [Id(5)]
+        [Id(4)]
         public IQueueCacheCursor? Cursor;
-        [Id(6)]
+        [Id(5)]
         public StreamHandshakeToken? LastToken;
-        [Id(7)]
+        [Id(6)]
         public string FilterData;
 
-        public StreamConsumerData(GuidId subscriptionId, InternalStreamId streamId, IStreamConsumerExtension streamConsumer, string filterData)
+        public StreamConsumerData(GuidId subscriptionId, QualifiedStreamId streamId, IStreamConsumerExtension streamConsumer, string filterData)
         {
             SubscriptionId = subscriptionId;
             StreamId = streamId;

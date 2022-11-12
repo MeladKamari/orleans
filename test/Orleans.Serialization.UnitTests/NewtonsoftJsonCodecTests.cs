@@ -1,28 +1,31 @@
-using Orleans.Serialization.Buffers;
+using System.Reflection;
+using Microsoft.Extensions.DependencyInjection;
+using Orleans.Serialization.Cloning;
 using Orleans.Serialization.Codecs;
 using Orleans.Serialization.Serializers;
-using Orleans.Serialization.Utilities;
-using Microsoft.Extensions.DependencyInjection;
-using System.IO.Pipelines;
-using Xunit;
-using System.Reflection;
 using Orleans.Serialization.TestKit;
+using Xunit;
+using Xunit.Abstractions;
 
 namespace Orleans.Serialization.UnitTests
 {
     [Trait("Category", "BVT")]
-    public class NewtonsoftJsonCodecTests : FieldCodecTester<object, NewtonsoftJsonCodec>
+    public class NewtonsoftJsonCodecTests : FieldCodecTester<MyJsonClass, IFieldCodec<MyJsonClass>>
     {
+        public NewtonsoftJsonCodecTests(ITestOutputHelper output) : base(output)
+        {
+        }
+
         protected override void Configure(ISerializerBuilder builder)
         {
             builder.AddNewtonsoftJsonSerializer(isSupported: type => type.GetCustomAttribute<MyJsonSerializableAttribute>(inherit: false) is not null);
         }
 
-        protected override object CreateValue() => new MyJsonClass { IntProperty = 30, SubTypeProperty = "hello" };
+        protected override MyJsonClass CreateValue() => new MyJsonClass { IntProperty = 30, SubTypeProperty = "hello" };
 
         protected override int[] MaxSegmentSizes => new[] { 840 };
 
-        protected override object[] TestValues => new object[]
+        protected override MyJsonClass[] TestValues => new MyJsonClass[]
         {
             null,
             new MyJsonClass(),
@@ -75,16 +78,22 @@ namespace Orleans.Serialization.UnitTests
     }
 
     [Trait("Category", "BVT")]
-    public class NewtonsoftJsonCodecCopierTests : CopierTester<object, NewtonsoftJsonCodec>
+    public class NewtonsoftJsonCodecCopierTests : CopierTester<MyJsonClass, IDeepCopier<MyJsonClass>>
     {
+        public NewtonsoftJsonCodecCopierTests(ITestOutputHelper output) : base(output)
+        {
+        }
+
         protected override void Configure(ISerializerBuilder builder)
         {
             builder.AddNewtonsoftJsonSerializer(isSupported: type => type.GetCustomAttribute<MyJsonSerializableAttribute>(inherit: false) is not null);
         }
 
-        protected override object CreateValue() => new MyJsonClass { IntProperty = 30, SubTypeProperty = "hello" };
+        protected override IDeepCopier<MyJsonClass> CreateCopier() => ServiceProvider.GetRequiredService<ICodecProvider>().GetDeepCopier<MyJsonClass>();
 
-        protected override object[] TestValues => new object[]
+        protected override MyJsonClass CreateValue() => new MyJsonClass { IntProperty = 30, SubTypeProperty = "hello" };
+
+        protected override MyJsonClass[] TestValues => new MyJsonClass[]
         {
             null,
             new MyJsonClass(),

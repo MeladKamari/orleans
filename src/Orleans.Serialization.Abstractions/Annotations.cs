@@ -1,4 +1,5 @@
 using System;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Orleans
 {
@@ -14,6 +15,11 @@ namespace Orleans
         /// Defaults to <see langword="true"/> for record types.
         /// </summary>
         public bool IncludePrimaryConstructorParameters { get; init; } = true;
+
+        /// <summary>
+        /// Get or sets when Orleans should auto-assign field ids. The default behavior is to not auto-assign field ids.
+        /// </summary>
+        public GenerateFieldIds GenerateFieldIds { get; init; } = GenerateFieldIds.None;
     }
 
     /// <summary>
@@ -261,7 +267,7 @@ namespace Orleans
         /// Initializes a new instance of the <see cref="IdAttribute"/> class.
         /// </summary>
         /// <param name="id">The identifier.</param>
-        public IdAttribute(ushort id)
+        public IdAttribute(uint id)
         {
             Id = id;
         }
@@ -270,43 +276,25 @@ namespace Orleans
         /// Gets the identifier.
         /// </summary>
         /// <value>The identifier.</value>
-        public ushort Id { get; }
+        public uint Id { get; }
     }
 
     /// <summary>
-    /// When applied to a type or method, indicates that a well-known numeric identifier can be used to uniquely identify that type or method.
+    /// Specifies the constructor the serializer should use when creating new instances from serialized data.
     /// </summary>
     /// <remarks>
-    /// In the case of a type, the numeric id must be globally unique. In the case of a method, the numeric id must be unique to the declaring type.
+    /// At most one constructor can be annotated with this attribute. If multiple constructors are annotated, the presence of this attribute is ignored.
     /// </remarks>
-    /// <seealso cref="System.Attribute" />
-    [AttributeUsage(
-        AttributeTargets.Class
-        | AttributeTargets.Interface
-        | AttributeTargets.Struct
-        | AttributeTargets.Enum
-        | AttributeTargets.Method)]
-    public sealed class WellKnownIdAttribute : Attribute
+    /// <seealso cref="Microsoft.Extensions.DependencyInjection.ActivatorUtilitiesConstructorAttribute" />
+    [AttributeUsage(AttributeTargets.Constructor)]
+    public sealed class OrleansConstructorAttribute : ActivatorUtilitiesConstructorAttribute
     {
         /// <summary>
-        /// Initializes a new instance of the <see cref="WellKnownIdAttribute"/> class.
+        /// Initializes a new instance of the <see cref="OrleansConstructorAttribute"/> class.
         /// </summary>
-        /// <param name="id">The identifier.</param>
-        /// <remarks>
-        /// In the case of a type, the numeric id must be globally unique. In the case of a method, the numeric id must be unique to the declaring type.
-        /// </remarks>
-        public WellKnownIdAttribute(uint id)
+        public OrleansConstructorAttribute()
         {
-            Id = id;
         }
-
-        /// <summary>
-        /// Gets the identifier.
-        /// </summary>
-        /// <remarks>
-        /// In the case of a type, the numeric id must be globally unique. In the case of a method, the numeric id must be unique to the declaring type.
-        /// </remarks>
-        public uint Id { get; }
     }
 
     /// <summary>
@@ -322,16 +310,16 @@ namespace Orleans
         | AttributeTargets.Struct
         | AttributeTargets.Enum
         | AttributeTargets.Method)]
-    public sealed class WellKnownAliasAttribute : Attribute
+    public sealed class AliasAttribute : Attribute
     {
         /// <summary>
-        /// Initializes a new instance of the <see cref="WellKnownAliasAttribute"/> class.
+        /// Initializes a new instance of the <see cref="AliasAttribute"/> class.
         /// </summary>
         /// <param name="alias">The alias.</param>
         /// <remarks>
         /// In the case of a type, the alias must be globally unique. In the case of a method, the alias must be unique to the declaring type.
         /// </remarks>
-        public WellKnownAliasAttribute(string alias)
+        public AliasAttribute(string alias)
         {
             Alias = alias;
         }
@@ -343,6 +331,32 @@ namespace Orleans
         /// In the case of a type, the alias must be globally unique. In the case of a method, the alias must be unique to the declaring type.
         /// </remarks>
         public string Alias { get; }
+    }
+
+    /// <summary>
+    /// When applied to a type, indicates that the type should be encoded as a relation from a specified type.
+    /// </summary>
+    /// <seealso cref="Attribute" />
+    [AttributeUsage(
+        AttributeTargets.Class
+        | AttributeTargets.Interface
+        | AttributeTargets.Struct
+        | AttributeTargets.Enum)]
+    public sealed class CompoundTypeAliasAttribute : Attribute
+    {
+        /// <summary>
+        /// Initializes a new instance of the <see cref="CompoundTypeAliasAttribute"/> class.
+        /// </summary>
+        /// <param name="components">The alias components, each of which must be a <see cref="Components"/> or a <see cref="string"/>.</param>
+        public CompoundTypeAliasAttribute(params object[] components)
+        {
+            Components = components;
+        }
+
+        /// <summary>
+        /// Gets the alias components.
+        /// </summary>
+        public object[] Components { get; }
     }
 
     /// <summary>
@@ -392,7 +406,7 @@ namespace Orleans
     /// <remarks>
     /// Reference tracking allows a serializable type to participate in a cyclic object graph.
     /// </remarks>
-    [AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct)]
+    [AttributeUsage(AttributeTargets.Class)]
     public sealed class SuppressReferenceTrackingAttribute : Attribute
     {
     }
@@ -408,12 +422,21 @@ namespace Orleans
 
     /// <summary>
     /// Indicates that the type, type member, parameter, or return value which it is applied to should be treated as immutable and therefore that defensive copies are never required.
+    /// When applied to non-sealed classes, derived types are not guaranteed to be immutable.
     /// </summary>
     /// <seealso cref="System.Attribute" />
-    [AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct | AttributeTargets.Field | AttributeTargets.Property | AttributeTargets.Parameter | AttributeTargets.ReturnValue)]
+    [AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct | AttributeTargets.Field | AttributeTargets.Property | AttributeTargets.Parameter | AttributeTargets.ReturnValue, Inherited = false)]
     public sealed class ImmutableAttribute : Attribute
     {
     }
+
+    /// <summary>
+    /// Indicates that the specific type is invisible for serialization purposes.
+    /// Usable only on abstract types with no serialized fields and effectively removes it from the inheritance hierarchy.
+    /// Adding/removing this attribute from a type will cause serialization protocol level incompatibility (like type hierarchy changes).
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Class, Inherited = false)]
+    public sealed class SerializerTransparentAttribute : Attribute { }
 
     /// <summary>
     /// Specifies an assembly to be added as an application part.
