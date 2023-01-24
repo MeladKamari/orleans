@@ -138,6 +138,7 @@ namespace Orleans.Serialization.UnitTests
         protected override Action<Action<DateTime>> ValueProvider => Gen.DateTime.ToValueProvider();
     }
 
+#if NET6_0_OR_GREATER
     public class DateOnlyTests : FieldCodecTester<DateOnly, DateOnlyCodec>
     {
         public DateOnlyTests(ITestOutputHelper output) : base(output)
@@ -181,6 +182,7 @@ namespace Orleans.Serialization.UnitTests
         protected override TimeOnly[] TestValues => new[] { TimeOnly.MinValue, TimeOnly.MaxValue, TimeOnly.FromTimeSpan(TimeSpan.Zero), CreateValue() };
         protected override Action<Action<TimeOnly>> ValueProvider => assert => Gen.Date.Sample(dt => assert(TimeOnly.FromDateTime(dt)));
     }
+#endif
 
     public class TimeSpanTests : FieldCodecTester<TimeSpan, TimeSpanCodec>
     {
@@ -1173,6 +1175,7 @@ namespace Orleans.Serialization.UnitTests
         protected override int[][] TestValues => new[] { null, Array.Empty<int>(), CreateValue(), CreateValue(), CreateValue() };
     }
 
+#if NET7_0_OR_GREATER
     public class UInt128CodecTests : FieldCodecTester<UInt128, UInt128Codec>
     {
         public UInt128CodecTests(ITestOutputHelper output) : base(output)
@@ -1226,6 +1229,7 @@ namespace Orleans.Serialization.UnitTests
 
         protected override Action<Action<UInt128>> ValueProvider => assert => Gen.ULong.Select(Gen.ULong).Sample(value => assert(new (value.V0, value.V1)));
     }
+#endif
 
     public class UInt64CodecTests : FieldCodecTester<ulong, UInt64Codec>
     {
@@ -1410,6 +1414,7 @@ namespace Orleans.Serialization.UnitTests
         protected override Action<Action<byte>> ValueProvider => Gen.Byte.ToValueProvider();
     }
 
+#if NET7_0_OR_GREATER
     public class Int128CodecTests : FieldCodecTester<Int128, Int128Codec>
     {
         public Int128CodecTests(ITestOutputHelper output) : base(output)
@@ -1463,6 +1468,7 @@ namespace Orleans.Serialization.UnitTests
 
         protected override Action<Action<Int128>> ValueProvider => assert => Gen.ULong.Select(Gen.ULong).Sample(value => assert(new (value.V0, value.V1)));
     }
+#endif
 
     public class Int64CodecTests : FieldCodecTester<long, Int64Codec>
     {
@@ -1866,6 +1872,7 @@ namespace Orleans.Serialization.UnitTests
         protected override Action<Action<float>> ValueProvider => Gen.Float.ToValueProvider();
     }
 
+#if NET5_0_OR_GREATER
     public class HalfCodecTests : FieldCodecTester<Half, HalfCodec>
     {
         public HalfCodecTests(ITestOutputHelper output) : base(output)
@@ -1889,6 +1896,7 @@ namespace Orleans.Serialization.UnitTests
 
         protected override Action<Action<Half>> ValueProvider => assert => Gen.UShort.Sample(value => assert(BitConverter.UInt16BitsToHalf(value)));
     }
+#endif
 
     public class DoubleCodecTests : FieldCodecTester<double, DoubleCodec>
     {
@@ -1976,6 +1984,48 @@ namespace Orleans.Serialization.UnitTests
 
         protected override bool Equals(List<int> left, List<int> right) => object.ReferenceEquals(left, right) || left.SequenceEqual(right);
         protected override List<int>[] TestValues => new[] { null, new List<int>(), CreateValue(), CreateValue(), CreateValue() };
+    }
+
+    public class CollectionCodecTests : FieldCodecTester<Collection<int>, CollectionCodec<int>>
+    {
+        public CollectionCodecTests(ITestOutputHelper output) : base(output)
+        {
+        }
+
+        protected override Collection<int> CreateValue()
+        {
+            var result = new Collection<int>();
+            for (var i = 0; i < Random.Next(17) + 5; i++)
+            {
+                result.Add(Random.Next());
+            }
+
+            return result;
+        }
+
+        protected override bool Equals(Collection<int> left, Collection<int> right) => object.ReferenceEquals(left, right) || left.SequenceEqual(right);
+        protected override Collection<int>[] TestValues => new[] { null, new Collection<int>(), CreateValue(), CreateValue(), CreateValue() };
+    }
+
+    public class CollectionCopierTests : CopierTester<Collection<int>, CollectionCopier<int>>
+    {
+        public CollectionCopierTests(ITestOutputHelper output) : base(output)
+        {
+        }
+
+        protected override Collection<int> CreateValue()
+        {
+            var result = new Collection<int>();
+            for (var i = 0; i < Random.Next(17) + 5; i++)
+            {
+                result.Add(Random.Next());
+            }
+
+            return result;
+        }
+
+        protected override bool Equals(Collection<int> left, Collection<int> right) => object.ReferenceEquals(left, right) || left.SequenceEqual(right);
+        protected override Collection<int>[] TestValues => new[] { null, new Collection<int>(), CreateValue(), CreateValue(), CreateValue() };
     }
 
     public class QueueCodecTests : FieldCodecTester<Queue<int>, QueueCodec<int>>
@@ -2245,7 +2295,7 @@ namespace Orleans.Serialization.UnitTests
                     return false;
                 }
             }
-            
+
             return true;
         }
     }
@@ -2288,7 +2338,7 @@ namespace Orleans.Serialization.UnitTests
                     return false;
                 }
             }
-            
+
             return true;
         }
     }
@@ -2383,6 +2433,8 @@ namespace Orleans.Serialization.UnitTests
         {
         }
 
+        protected override int[] MaxSegmentSizes => new[] { 32 };
+
         protected override IPAddress[] TestValues => new[] { null, IPAddress.Any, IPAddress.IPv6Any, IPAddress.IPv6Loopback, IPAddress.IPv6None, IPAddress.Loopback, IPAddress.Parse("123.123.10.3"), CreateValue() };
 
         protected override IPAddress CreateValue()
@@ -2398,7 +2450,7 @@ namespace Orleans.Serialization.UnitTests
             }
             Random.NextBytes(bytes);
             return new IPAddress(bytes);
-        } 
+        }
     }
 
     public class IPAddressCopierTests : CopierTester<IPAddress, IDeepCopier<IPAddress>>
@@ -2593,7 +2645,7 @@ namespace Orleans.Serialization.UnitTests
 
         protected override bool Equals(FSharpOption<Guid> left, FSharpOption<Guid> right) => object.ReferenceEquals(left, right) || left.GetType() == right.GetType() && left.Value.Equals(right.Value);
     }
-    
+
     public class FSharpOptionTests2 : FieldCodecTester<FSharpOption<object>, FSharpOptionCodec<object>>
     {
         public FSharpOptionTests2(ITestOutputHelper output) : base(output)

@@ -1,8 +1,10 @@
-using Orleans.Serialization.Buffers;
-using Orleans.Serialization.Cloning;
-using Orleans.Serialization.WireProtocol;
 using System;
 using System.Buffers;
+using System.Diagnostics;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using Orleans.Serialization.Buffers;
+using Orleans.Serialization.WireProtocol;
 
 namespace Orleans.Serialization.Codecs
 {
@@ -12,42 +14,34 @@ namespace Orleans.Serialization.Codecs
     [RegisterSerializer]
     public sealed class GuidCodec : IFieldCodec<Guid>
     {
-        /// <summary>
-        /// The codec field type
-        /// </summary>
-        public static readonly Type CodecFieldType = typeof(Guid);
         private const int Width = 16;
 
-        /// <inheritdoc/>
-        void IFieldCodec<Guid>.WriteField<TBufferWriter>(ref Writer<TBufferWriter> writer, uint fieldIdDelta, Type expectedType, Guid value) => WriteField(ref writer, fieldIdDelta, expectedType, value);
+        void IFieldCodec<Guid>.WriteField<TBufferWriter>(ref Writer<TBufferWriter> writer, uint fieldIdDelta, Type expectedType, Guid value)
+        {
+            ReferenceCodec.MarkValueField(writer.Session);
+            writer.WriteFieldHeader(fieldIdDelta, expectedType, typeof(Guid), WireType.LengthPrefixed);
+            writer.WriteVarUInt7(Width);
+            WriteRaw(ref writer, value);
+        }
 
         /// <summary>
-        /// Writes a field.
+        /// Writes a field without type info (expected type is statically known).
         /// </summary>
         /// <typeparam name="TBufferWriter">The buffer writer type.</typeparam>
         /// <param name="writer">The writer.</param>
         /// <param name="fieldIdDelta">The field identifier delta.</param>
-        /// <param name="expectedType">The expected type.</param>
         /// <param name="value">The value.</param>
-        public static void WriteField<TBufferWriter>(ref Writer<TBufferWriter> writer, uint fieldIdDelta, Type expectedType, Guid value) where TBufferWriter : IBufferWriter<byte>
+        public static void WriteField<TBufferWriter>(ref Writer<TBufferWriter> writer, uint fieldIdDelta, Guid value) where TBufferWriter : IBufferWriter<byte>
         {
             ReferenceCodec.MarkValueField(writer.Session);
-            writer.WriteFieldHeader(fieldIdDelta, expectedType, typeof(Guid), WireType.LengthPrefixed);
-            writer.WriteVarUInt32(Width);
-#if NETCOREAPP3_1_OR_GREATER
-            writer.EnsureContiguous(Width);
-            if (value.TryWriteBytes(writer.WritableSpan))
-            {
-                writer.AdvanceSpan(Width);
-                return;
-            }
-#endif
-            writer.Write(value.ToByteArray());
+            writer.WriteFieldHeaderExpected(fieldIdDelta, WireType.LengthPrefixed);
+            writer.WriteVarUInt7(Width);
+            WriteRaw(ref writer, value);
         }
 
         /// <inheritdoc/>
         Guid IFieldCodec<Guid>.ReadValue<TInput>(ref Reader<TInput> reader, Field field) => ReadValue(ref reader, field);
-                
+
         /// <summary>
         /// Reads a value.
         /// </summary>
@@ -67,54 +61,63 @@ namespace Orleans.Serialization.Codecs
                 throw new UnexpectedLengthPrefixValueException(nameof(Guid), Width, length);
             }
 
-#if NETCOREAPP3_1_OR_GREATER
-            if (reader.TryReadBytes(Width, out var readOnly))
-            {
-                return new Guid(readOnly);
-            }
-
-            Span<byte> bytes = stackalloc byte[Width];
-            for (var i = 0; i < Width; i++)
-            {
-                bytes[i] = reader.ReadByte();
-            }
-
-            return new Guid(bytes);
-#else
-            return new Guid(reader.ReadBytes(Width));
-#endif
+            return ReadRaw(ref reader);
         }
 
+        /// <summary>
+        /// Writes the raw GUID content.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void WriteRaw<TBufferWriter>(ref Writer<TBufferWriter> writer, Guid value) where TBufferWriter : IBufferWriter<byte>
         {
-#if NETCOREAPP3_1_OR_GREATER
-            writer.EnsureContiguous(Width);
-            if (value.TryWriteBytes(writer.WritableSpan))
+            if (BitConverter.IsLittleEndian)
             {
-                writer.AdvanceSpan(Width);
-                return;
-            }
+#if NET7_0_OR_GREATER
+                writer.Write(MemoryMarshal.AsBytes(new Span<Guid>(ref value)));
+#else
+                writer.EnsureContiguous(Width);
+                if (value.TryWriteBytes(writer.WritableSpan))
+                {
+                    writer.AdvanceSpan(Width);
+                    return;
+                }
+                writer.Write(value.ToByteArray());
 #endif
-            writer.Write(value.ToByteArray());
+            }
+            else
+            {
+                writer.EnsureContiguous(Width);
+                var done = value.TryWriteBytes(writer.WritableSpan);
+                Debug.Assert(done);
+                writer.AdvanceSpan(Width);
+            }
         }
 
+        /// <summary>
+        /// Reads the raw GUID content.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static Guid ReadRaw<TInput>(ref Reader<TInput> reader)
         {
-#if NETCOREAPP3_1_OR_GREATER
+#if NET7_0_OR_GREATER
+            Unsafe.SkipInit(out Guid res);
+            var bytes = MemoryMarshal.AsBytes(new Span<Guid>(ref res));
+            reader.ReadBytes(bytes);
+
+            if (BitConverter.IsLittleEndian)
+                return res;
+
+            return new Guid(bytes);
+#else
             if (reader.TryReadBytes(Width, out var readOnly))
             {
                 return new Guid(readOnly);
             }
 
             Span<byte> bytes = stackalloc byte[Width];
-            for (var i = 0; i < Width; i++)
-            {
-                bytes[i] = reader.ReadByte();
-            }
+            reader.ReadBytes(bytes);
 
             return new Guid(bytes);
-#else
-            return new Guid(reader.ReadBytes(Width));
 #endif
         }
     }

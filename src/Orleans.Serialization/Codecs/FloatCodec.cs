@@ -1,5 +1,6 @@
 using System;
 using System.Buffers;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -14,27 +15,34 @@ namespace Orleans.Serialization.Codecs
     [RegisterSerializer]
     public sealed class FloatCodec : IFieldCodec<float>
     {
-        private static readonly Type CodecFieldType = typeof(float);
-
-        /// <inheritdoc/>
-        void IFieldCodec<float>.WriteField<TBufferWriter>(ref Writer<TBufferWriter> writer,
-            uint fieldIdDelta,
-            Type expectedType,
-            float value) => WriteField(ref writer, fieldIdDelta, expectedType, value);
+        void IFieldCodec<float>.WriteField<TBufferWriter>(ref Writer<TBufferWriter> writer, uint fieldIdDelta, Type expectedType, float value)
+        {
+            ReferenceCodec.MarkValueField(writer.Session);
+            writer.WriteFieldHeader(fieldIdDelta, expectedType, typeof(float), WireType.Fixed32);
+#if NET6_0_OR_GREATER
+            writer.WriteUInt32(BitConverter.SingleToUInt32Bits(value));
+#else
+            writer.WriteUInt32((uint)BitConverter.SingleToInt32Bits(value));
+#endif
+        }
 
         /// <summary>
-        /// Writes a field.
+        /// Writes a field without type info (expected type is statically known).
         /// </summary>
         /// <typeparam name="TBufferWriter">The buffer writer type.</typeparam>
         /// <param name="writer">The writer.</param>
         /// <param name="fieldIdDelta">The field identifier delta.</param>
-        /// <param name="expectedType">The expected type.</param>
         /// <param name="value">The value.</param>
-        public static void WriteField<TBufferWriter>(ref Writer<TBufferWriter> writer, uint fieldIdDelta, Type expectedType, float value) where TBufferWriter : IBufferWriter<byte>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void WriteField<TBufferWriter>(ref Writer<TBufferWriter> writer, uint fieldIdDelta, float value) where TBufferWriter : IBufferWriter<byte>
         {
             ReferenceCodec.MarkValueField(writer.Session);
-            writer.WriteFieldHeader(fieldIdDelta, expectedType, CodecFieldType, WireType.Fixed32);
+            writer.WriteFieldHeaderExpected(fieldIdDelta, WireType.Fixed32);
+#if NET6_0_OR_GREATER
             writer.WriteUInt32(BitConverter.SingleToUInt32Bits(value));
+#else
+            writer.WriteUInt32((uint)BitConverter.SingleToInt32Bits(value));
+#endif
         }
 
         /// <inheritdoc/>
@@ -67,9 +75,10 @@ namespace Orleans.Serialization.Codecs
 
                 case WireType.LengthPrefixed:
                     return (float)DecimalCodec.ReadDecimalRaw(ref reader);
-
+#if NET6_0_OR_GREATER
                 case WireType.VarInt:
                     return (float)HalfCodec.ReadHalfRaw(ref reader);
+#endif
                 default:
                     ThrowWireTypeOutOfRange(field.WireType);
                     return 0;
@@ -83,10 +92,14 @@ namespace Orleans.Serialization.Codecs
         /// <param name="reader">The reader.</param>
         /// <returns>The value.</returns>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+#if NET6_0_OR_GREATER
         public static float ReadFloatRaw<TInput>(ref Reader<TInput> reader) => BitConverter.UInt32BitsToSingle(reader.ReadUInt32());
+#else
+        public static float ReadFloatRaw<TInput>(ref Reader<TInput> reader) => BitConverter.Int32BitsToSingle((int)reader.ReadUInt32());
+#endif
 
-        private static void ThrowWireTypeOutOfRange(WireType wireType) => throw new ArgumentOutOfRangeException(
-            $"{nameof(wireType)} {wireType} is not supported by this codec.");
+        private static void ThrowWireTypeOutOfRange(WireType wireType) => throw new UnsupportedWireTypeException(
+            $"WireType {wireType} is not supported by this codec.");
 
         private static void ThrowValueOutOfRange<T>(T value) => throw new OverflowException(
             $"The {typeof(T)} value has a magnitude too high {value} to be converted to {typeof(float)}.");
@@ -98,27 +111,34 @@ namespace Orleans.Serialization.Codecs
     [RegisterSerializer]
     public sealed class DoubleCodec : IFieldCodec<double>
     {
-        private static readonly Type CodecFieldType = typeof(double);
-
-        /// <inheritdoc/>
-        void IFieldCodec<double>.WriteField<TBufferWriter>(ref Writer<TBufferWriter> writer,
-            uint fieldIdDelta,
-            Type expectedType,
-            double value) => WriteField(ref writer, fieldIdDelta, expectedType, value);
+        void IFieldCodec<double>.WriteField<TBufferWriter>(ref Writer<TBufferWriter> writer, uint fieldIdDelta, Type expectedType, double value)
+        {
+            ReferenceCodec.MarkValueField(writer.Session);
+            writer.WriteFieldHeader(fieldIdDelta, expectedType, typeof(double), WireType.Fixed64);
+#if NET6_0_OR_GREATER
+            writer.WriteUInt64(BitConverter.DoubleToUInt64Bits(value));
+#else
+            writer.WriteUInt64((ulong)BitConverter.DoubleToInt64Bits(value));
+#endif
+        }
 
         /// <summary>
-        /// Writes a field.
+        /// Writes a field without type info (expected type is statically known).
         /// </summary>
         /// <typeparam name="TBufferWriter">The buffer writer type.</typeparam>
         /// <param name="writer">The writer.</param>
         /// <param name="fieldIdDelta">The field identifier delta.</param>
-        /// <param name="expectedType">The expected type.</param>
         /// <param name="value">The value.</param>
-        public static void WriteField<TBufferWriter>(ref Writer<TBufferWriter> writer, uint fieldIdDelta, Type expectedType, double value) where TBufferWriter : IBufferWriter<byte>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void WriteField<TBufferWriter>(ref Writer<TBufferWriter> writer, uint fieldIdDelta, double value) where TBufferWriter : IBufferWriter<byte>
         {
             ReferenceCodec.MarkValueField(writer.Session);
-            writer.WriteFieldHeader(fieldIdDelta, expectedType, CodecFieldType, WireType.Fixed64);
+            writer.WriteFieldHeaderExpected(fieldIdDelta, WireType.Fixed64);
+#if NET6_0_OR_GREATER
             writer.WriteUInt64(BitConverter.DoubleToUInt64Bits(value));
+#else
+            writer.WriteUInt64((ulong)BitConverter.DoubleToInt64Bits(value));
+#endif
         }
 
         /// <inheritdoc/>
@@ -142,8 +162,10 @@ namespace Orleans.Serialization.Codecs
                     return ReadDoubleRaw(ref reader);
                 case WireType.LengthPrefixed:
                     return (double)DecimalCodec.ReadDecimalRaw(ref reader);
+#if NET6_0_OR_GREATER
                 case WireType.VarInt:
                     return (double)HalfCodec.ReadHalfRaw(ref reader);
+#endif
                 default:
                     ThrowWireTypeOutOfRange(field.WireType);
                     return 0;
@@ -157,10 +179,14 @@ namespace Orleans.Serialization.Codecs
         /// <param name="reader">The reader.</param>
         /// <returns>The value.</returns>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+#if NET6_0_OR_GREATER
         public static double ReadDoubleRaw<TInput>(ref Reader<TInput> reader) => BitConverter.UInt64BitsToDouble(reader.ReadUInt64());
+#else
+        public static double ReadDoubleRaw<TInput>(ref Reader<TInput> reader) => BitConverter.Int64BitsToDouble((long)reader.ReadUInt64());
+#endif
 
-        private static void ThrowWireTypeOutOfRange(WireType wireType) => throw new ArgumentOutOfRangeException(
-            $"{nameof(wireType)} {wireType} is not supported by this codec.");
+        private static void ThrowWireTypeOutOfRange(WireType wireType) => throw new UnsupportedWireTypeException(
+            $"WireType {wireType} is not supported by this codec.");
     }
 
     /// <summary>
@@ -169,25 +195,42 @@ namespace Orleans.Serialization.Codecs
     [RegisterSerializer]
     public sealed class DecimalCodec : IFieldCodec<decimal>
     {
-        internal const int Width = 16;
-        private static readonly Type CodecFieldType = typeof(decimal);
+        private const int Width = 16;
 
-        /// <inheritdoc/>
-        void IFieldCodec<decimal>.WriteField<TBufferWriter>(ref Writer<TBufferWriter> writer, uint fieldIdDelta, Type expectedType, decimal value) => WriteField(ref writer, fieldIdDelta, expectedType, value);
-
-        /// <summary>
-        /// Writes a field.
-        /// </summary>
-        /// <typeparam name="TBufferWriter">The buffer type.</typeparam>
-        /// <param name="writer">The writer.</param>
-        /// <param name="fieldIdDelta">The field identifier delta.</param>
-        /// <param name="expectedType">The expected type.</param>
-        /// <param name="value">The value.</param>
-        public static void WriteField<TBufferWriter>(ref Writer<TBufferWriter> writer, uint fieldIdDelta, Type expectedType, decimal value) where TBufferWriter : IBufferWriter<byte>
+        void IFieldCodec<decimal>.WriteField<TBufferWriter>(ref Writer<TBufferWriter> writer, uint fieldIdDelta, Type expectedType, decimal value)
         {
             ReferenceCodec.MarkValueField(writer.Session);
-            writer.WriteFieldHeader(fieldIdDelta, expectedType, CodecFieldType, WireType.LengthPrefixed);
-            writer.WriteVarUInt32(Width);
+            writer.WriteFieldHeader(fieldIdDelta, expectedType, typeof(decimal), WireType.LengthPrefixed);
+            WriteRaw(ref writer, ref value);
+        }
+
+        /// <summary>
+        /// Writes a field without type info (expected type is statically known).
+        /// </summary>
+        /// <typeparam name="TBufferWriter">The buffer writer type.</typeparam>
+        /// <param name="writer">The writer.</param>
+        /// <param name="fieldIdDelta">The field identifier delta.</param>
+        /// <param name="value">The value.</param>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void WriteField<TBufferWriter>(ref Writer<TBufferWriter> writer, uint fieldIdDelta, decimal value) where TBufferWriter : IBufferWriter<byte>
+        {
+            ReferenceCodec.MarkValueField(writer.Session);
+            writer.WriteFieldHeaderExpected(fieldIdDelta, WireType.LengthPrefixed);
+            WriteRaw(ref writer, ref value);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static void WriteRaw<TBufferWriter>(ref Writer<TBufferWriter> writer, ref decimal value) where TBufferWriter : IBufferWriter<byte>
+        {
+            writer.WriteVarUInt7(Width);
+
+#if NET6_0_OR_GREATER
+            if (BitConverter.IsLittleEndian)
+            {
+                writer.Write(MemoryMarshal.AsBytes(new Span<decimal>(ref value)));
+                return;
+            }
+#endif
 
             ref var holder = ref Unsafe.As<decimal, DecimalConverter>(ref value);
             writer.WriteUInt32(holder.Flags);
@@ -232,8 +275,10 @@ namespace Orleans.Serialization.Codecs
                     }
                 case WireType.LengthPrefixed:
                     return ReadDecimalRaw(ref reader);
+#if NET6_0_OR_GREATER
                 case WireType.VarInt:
                     return (decimal)HalfCodec.ReadHalfRaw(ref reader);
+#endif
                 default:
                     ThrowWireTypeOutOfRange(field.WireType);
                     return 0;
@@ -254,12 +299,15 @@ namespace Orleans.Serialization.Codecs
                 throw new UnexpectedLengthPrefixValueException("decimal", Width, length);
             }
 
-            return ReadDecimalRawNoValidation(ref reader);
-        }
+#if NET6_0_OR_GREATER
+            if (BitConverter.IsLittleEndian)
+            {
+                Unsafe.SkipInit(out decimal res);
+                reader.ReadBytes(MemoryMarshal.AsBytes(new Span<decimal>(ref res)));
+                return res;
+            }
+#endif
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal static decimal ReadDecimalRawNoValidation<TInput>(ref Reader<TInput> reader)
-        {
             DecimalConverter holder;
             holder.Flags = reader.ReadUInt32();
             holder.Hi32 = reader.ReadUInt32();
@@ -274,40 +322,38 @@ namespace Orleans.Serialization.Codecs
             public ulong Lo64;
         }
 
-        private static void ThrowWireTypeOutOfRange(WireType wireType) => throw new ArgumentOutOfRangeException(
-            $"{nameof(wireType)} {wireType} is not supported by this codec.");
+        private static void ThrowWireTypeOutOfRange(WireType wireType) => throw new UnsupportedWireTypeException(
+            $"WireType {wireType} is not supported by this codec.");
 
         private static void ThrowValueOutOfRange<T>(T value) => throw new OverflowException(
             $"The {typeof(T)} value has a magnitude too high {value} to be converted to {typeof(decimal)}.");
     }
 
+#if NET6_0_OR_GREATER
     /// <summary>
     /// Serializer for <see cref="Half"/>.
     /// </summary>
     [RegisterSerializer]
     public sealed class HalfCodec : IFieldCodec<Half>
     {
-        private const int Width = 2;
-        private static readonly Type CodecFieldType = typeof(Half);
-
-        /// <inheritdoc/>
-        void IFieldCodec<Half>.WriteField<TBufferWriter>(ref Writer<TBufferWriter> writer,
-            uint fieldIdDelta,
-            Type expectedType,
-            Half value) => WriteField(ref writer, fieldIdDelta, expectedType, value);
+        void IFieldCodec<Half>.WriteField<TBufferWriter>(ref Writer<TBufferWriter> writer, uint fieldIdDelta, Type expectedType, Half value)
+        {
+            var asUShort = BitConverter.HalfToUInt16Bits(value);
+            UInt16Codec.WriteField(ref writer, fieldIdDelta, expectedType, asUShort, typeof(Half));
+        }
 
         /// <summary>
-        /// Writes a field.
+        /// Writes a field without type info (expected type is statically known).
         /// </summary>
         /// <typeparam name="TBufferWriter">The buffer writer type.</typeparam>
         /// <param name="writer">The writer.</param>
         /// <param name="fieldIdDelta">The field identifier delta.</param>
-        /// <param name="expectedType">The expected type.</param>
         /// <param name="value">The value.</param>
-        public static void WriteField<TBufferWriter>(ref Writer<TBufferWriter> writer, uint fieldIdDelta, Type expectedType, Half value) where TBufferWriter : IBufferWriter<byte>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void WriteField<TBufferWriter>(ref Writer<TBufferWriter> writer, uint fieldIdDelta, Half value) where TBufferWriter : IBufferWriter<byte>
         {
             var asUShort = BitConverter.HalfToUInt16Bits(value);
-            UInt16Codec.WriteField(ref writer, fieldIdDelta, expectedType, asUShort, CodecFieldType);
+            UInt16Codec.WriteField(ref writer, fieldIdDelta, asUShort);
         }
 
         /// <inheritdoc/>
@@ -373,11 +419,12 @@ namespace Orleans.Serialization.Codecs
         internal static Half ReadHalfRaw<TInput>(ref Reader<TInput> reader) => BitConverter.UInt16BitsToHalf(reader.ReadVarUInt16());
 
         [DoesNotReturn]
-        private static void ThrowWireTypeOutOfRange(WireType wireType) => throw new ArgumentOutOfRangeException(
-            $"{nameof(wireType)} {wireType} is not supported by this codec.");
+        private static void ThrowWireTypeOutOfRange(WireType wireType) => throw new UnsupportedWireTypeException(
+            $"WireType {wireType} is not supported by this codec.");
 
         [DoesNotReturn]
         private static void ThrowValueOutOfRange<T>(T value) => throw new OverflowException(
             $"The {typeof(T)} value has a magnitude too high {value} to be converted to {typeof(Half)}.");
     }
+#endif
 }

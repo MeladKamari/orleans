@@ -59,6 +59,10 @@ namespace UnitTests.MembershipTests
 
             fixture.InitializeConnectionStringAccessor(GetConnectionString);
             this.connectionString = fixture.ConnectionString;
+            if (string.IsNullOrEmpty(this.connectionString))
+            {
+                throw new SkipException("No connection string configured");
+            }
             this.clusterOptions = Options.Create(new ClusterOptions { ClusterId = this.clusterId });
             var adoVariant = GetAdoInvariant();
 
@@ -108,7 +112,7 @@ namespace UnitTests.MembershipTests
             var version = data.Version;
             foreach (var membershipEntry in membershipEntries)
             {
-                Assert.True(await membershipTable.InsertRow(membershipEntry, version));
+                Assert.True(await membershipTable.InsertRow(membershipEntry, version.Next()));
                 version = (await membershipTable.ReadRow(membershipEntry.SiloAddress)).Version;
             }
 
@@ -365,16 +369,24 @@ namespace UnitTests.MembershipTests
 
             await Task.WhenAll(Enumerable.Range(1, 19).Select(async i =>
             {
-                bool done;
+                var done = false;
                 do
                 {
                     var updatedTableData = await membershipTable.ReadAll();
                     var updatedRow = updatedTableData.TryGet(data.SiloAddress);
 
-                    TableVersion tableVersion = updatedTableData.Version.Next();
-
                     await Task.Delay(10);
-                    try { done = await membershipTable.UpdateRow(updatedRow.Item1, updatedRow.Item2, tableVersion); } catch { done = false; }
+                    if (updatedRow is null) continue;
+
+                    TableVersion tableVersion = updatedTableData.Version.Next();
+                    try
+                    {
+                        done = await membershipTable.UpdateRow(updatedRow.Item1, updatedRow.Item2, tableVersion);
+                    }
+                    catch
+                    {
+                        done = false;
+                    }
                 } while (!done);
             })).WithTimeout(TimeSpan.FromSeconds(30));
 

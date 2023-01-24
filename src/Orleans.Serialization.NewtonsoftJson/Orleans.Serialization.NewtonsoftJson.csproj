@@ -2,14 +2,14 @@
 
   <PropertyGroup>
     <PackageId>Microsoft.Orleans.Serialization.NewtonsoftJson</PackageId>
-    <TargetFrameworks>$(DefaultTargetFrameworks)</TargetFrameworks>
+    <TargetFrameworks>$(DefaultTargetFrameworks);netstandard2.1</TargetFrameworks>
     <PackageDescription>Newtonsoft.Json integration for Orleans.Serialization</PackageDescription>
     <OrleansBuildTimeCodeGen>true</OrleansBuildTimeCodeGen>
     <IsOrleansFrameworkPart>false</IsOrleansFrameworkPart>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Newtonsoft.Json" Version="$(NewtonsoftJsonVersion)" />
+    <PackageReference Include="Newtonsoft.Json" />
   </ItemGroup>
 
   <ItemGroup>
