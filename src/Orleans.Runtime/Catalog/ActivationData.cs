@@ -180,7 +180,7 @@ namespace Orleans.Runtime
 
         public TimeSpan CollectionAgeLimit => _shared.CollectionAgeLimit;
 
-        public TTarget GetTarget<TTarget>() where TTarget : class => (TTarget)GrainInstance; 
+        public TTarget GetTarget<TTarget>() where TTarget : class => (TTarget)GrainInstance;
 
         TComponent ITargetHolder.GetComponent<TComponent>()
         {
@@ -657,9 +657,10 @@ namespace Orleans.Runtime
 
         bool IActivationWorkingSetMember.IsCandidateForRemoval(bool wouldRemove)
         {
+            const int IdlenessLowerBound = 10_000;
             lock (this)
             {
-                var inactive = IsInactive;
+                var inactive = IsInactive && _idleDuration.ElapsedMilliseconds > IdlenessLowerBound;
 
                 // This instance will remain in the working set if it is either not pending removal or if it is currently active.
                 _isInWorkingSet = !wouldRemove || !inactive;
@@ -1202,7 +1203,7 @@ namespace Orleans.Runtime
                 {
                     CatalogInstruments.ActivationFailedToActivate.Add(1);
 
-                    // Capture the exeption so that it can be propagated to rejection messages
+                    // Capture the exception so that it can be propagated to rejection messages
                     var sourceException = (exception as OrleansLifecycleCanceledException)?.InnerException ?? exception;
                     _shared.Logger.LogError((int)ErrorCode.Catalog_ErrorCallingActivate, sourceException, "Error activating grain {Grain}", this);
 

@@ -18,7 +18,7 @@ namespace Orleans.CodeGenerator
         public SerializableTypeDescription(SemanticModel semanticModel, INamedTypeSymbol type, bool supportsPrimaryConstructorParameters, IEnumerable<IMemberDescription> members, LibraryTypes libraryTypes)
         {
             Type = type;
-            SupportsPrimaryConstructorParameters = supportsPrimaryConstructorParameters;
+            IncludePrimaryConstructorParameters = supportsPrimaryConstructorParameters;
             Members = members.ToList();
             SemanticModel = semanticModel;
             _libraryTypes = libraryTypes;
@@ -114,7 +114,7 @@ namespace Orleans.CodeGenerator
 
         public bool HasComplexBaseType => !IsValueType && BaseType is { SpecialType: not SpecialType.System_Object };
 
-        public bool SupportsPrimaryConstructorParameters { get; }
+        public bool IncludePrimaryConstructorParameters { get; }
 
         public INamedTypeSymbol BaseType => _baseType ??= GetEffectiveBaseType();
 
@@ -226,7 +226,7 @@ namespace Orleans.CodeGenerator
             {
                 return CastExpression(
                     TypeSyntax,
-                    InvocationExpression(libraryTypes.FormatterServices.ToTypeSyntax().Member("GetUninitializedObject"))
+                    InvocationExpression(libraryTypes.RuntimeHelpers.ToTypeSyntax().Member("GetUninitializedObject"))
                         .AddArgumentListArguments(
                             Argument(TypeOfExpression(TypeSyntax))));
             }
