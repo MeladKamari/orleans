@@ -1,15 +1,10 @@
-using System;
-using System.Collections.Generic;
 using System.Net;
-using System.Threading.Tasks;
-using Orleans;
 using Orleans.Concurrency;
 using Orleans.Runtime;
 using UnitTests.GrainInterfaces;
 using Orleans.Runtime.Configuration;
 using Microsoft.Extensions.Logging;
 using Orleans.Internal;
-using System.Threading;
 
 namespace UnitTests.Grains
 {
@@ -17,7 +12,7 @@ namespace UnitTests.Grains
     {
         private string label;
 
-        private ILogger logger;
+        private readonly ILogger logger;
 
         public StressTestGrain(ILoggerFactory loggerFactory)
         {
@@ -114,7 +109,7 @@ namespace UnitTests.Grains
     internal class ReentrantStressTestGrain : Grain, IReentrantStressTestGrain
     {
         private string label;
-        private ILogger logger;
+        private readonly ILogger logger;
 
         public ReentrantStressTestGrain(ILoggerFactory loggerFactory)
         {
@@ -271,7 +266,7 @@ namespace UnitTests.Grains
     public class ReentrantLocalStressTestGrain : Grain, IReentrantLocalStressTestGrain
     {
         private string label;
-        private ILogger logger;
+        private readonly ILogger logger;
 
         public ReentrantLocalStressTestGrain(ILoggerFactory loggerFactory)
         {

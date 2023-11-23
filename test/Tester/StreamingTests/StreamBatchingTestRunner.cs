@@ -1,7 +1,3 @@
-using System;
-using System.Linq;
-using System.Threading.Tasks;
-using Orleans;
 using Orleans.Streams;
 using Orleans.TestingHost.Utils;
 using TestExtensions;
@@ -15,7 +11,7 @@ namespace UnitTests.StreamingTests
     {
         protected readonly BaseTestClusterFixture fixture;
         protected readonly ITestOutputHelper output;
-        private TimeSpan Timeout = TimeSpan.FromSeconds(30);
+        private readonly TimeSpan Timeout = TimeSpan.FromSeconds(30);
 
         protected StreamBatchingTestRunner(BaseTestClusterFixture fixture, ITestOutputHelper output)
         {

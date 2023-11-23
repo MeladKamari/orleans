@@ -14,7 +14,6 @@ using System.Text;
 using Xunit;
 using Orleans.Serialization.Serializers;
 using Xunit.Abstractions;
-using System.Threading;
 
 namespace Orleans.Serialization.TestKit
 {
@@ -188,7 +187,7 @@ namespace Orleans.Serialization.TestKit
                 var writer = Writer.CreatePooled(buffer, _sessionPool.GetSession());
                 serializer.Serialize(original, ref writer);
                 buffer.Flush();
-                writer.Output.Dispose();
+                writer.Dispose();
 
                 buffer.Position = 0;
                 var reader = Reader.Create(buffer, _sessionPool.GetSession());
@@ -452,7 +451,7 @@ namespace Orleans.Serialization.TestKit
                     var buffer = bytes.AsMemory();
                     var writer = Writer.Create(buffer, _sessionPool.GetSession());
                     serializer.Serialize(original, ref writer);
-                    var result = buffer.Slice(0, writer.Output.BytesWritten).ToArray();
+                    var result = buffer[..writer.Output.BytesWritten].ToArray();
                     Assert.Equal(expected, result);
                 }
 
@@ -462,7 +461,7 @@ namespace Orleans.Serialization.TestKit
                     var buffer = bytes.AsSpan();
                     var writer = Writer.Create(buffer, _sessionPool.GetSession());
                     serializer.Serialize(original, ref writer);
-                    var result = buffer.Slice(0, writer.Output.BytesWritten).ToArray();
+                    var result = buffer[..writer.Output.BytesWritten].ToArray();
                     Assert.Equal(expected, result);
                 }
 
@@ -486,7 +485,7 @@ namespace Orleans.Serialization.TestKit
                     buffer.SetLength(buffer.Position);
                     buffer.Position = 0;
                     var result = buffer.ToArray();
-                    writer.Output.Dispose();
+                    writer.Dispose();
                     Assert.Equal(expected, result);
                 }
 
@@ -521,7 +520,7 @@ namespace Orleans.Serialization.TestKit
             var writer = Writer.CreatePooled(writerSession);
             serializer.Serialize(original, ref writer);
             using var readerSession = _sessionPool.GetSession();
-            var reader = Reader.Create(writer.Output.AsReadOnlySequence(), readerSession);
+            var reader = Reader.Create(writer.Output, readerSession);
             var deserialized = serializer.Deserialize(ref reader);
 
             Assert.Equal(original.Count, deserialized.Count);
@@ -655,7 +654,7 @@ namespace Orleans.Serialization.TestKit
             var writer = Writer.CreatePooled(writerSession);
             serializer.Serialize(original, ref writer);
             using var readerSession = _sessionPool.GetSession();
-            var reader = Reader.Create(writer.Output.AsReadOnlySequence(), readerSession);
+            var reader = Reader.Create(writer.Output, readerSession);
             var deserialized = serializer.Deserialize(ref reader);
 
             var isEqual = Equals(original.Item1, deserialized.Item1);
@@ -860,31 +859,33 @@ namespace Orleans.Serialization.TestKit
         protected T RoundTripThroughCodec<T>(T original)
         {
             T result;
-            var pipe = new Pipe();
             using (var readerSession = SessionPool.GetSession())
             using (var writeSession = SessionPool.GetSession())
             {
-                var writer = Writer.Create(pipe.Writer, writeSession);
-                var codec = ServiceProvider.GetRequiredService<ICodecProvider>().GetCodec<T>();
-                codec.WriteField(
-                    ref writer,
-                    0,
-                    null,
-                    original);
-                writer.Commit();
-                _ = pipe.Writer.FlushAsync().AsTask().GetAwaiter().GetResult();
-                pipe.Writer.Complete();
+                var writer = Writer.CreatePooled(writeSession);
+                try
+                {
+                    var codec = ServiceProvider.GetRequiredService<ICodecProvider>().GetCodec<T>();
+                    codec.WriteField(
+                        ref writer,
+                        0,
+                        null,
+                        original);
+                    writer.Commit();
 
-                _ = pipe.Reader.TryRead(out var readResult);
-                var reader = Reader.Create(readResult.Buffer, readerSession);
+                    var output = writer.Output.AsReadOnlySequence();
+                    var reader = Reader.Create(output, readerSession);
 
-                var previousPos = reader.Position;
-                var initialHeader = reader.ReadFieldHeader();
-                Assert.True(reader.Position > previousPos);
+                    var previousPos = reader.Position;
+                    var initialHeader = reader.ReadFieldHeader();
+                    Assert.True(reader.Position > previousPos);
 
-                result = codec.ReadValue(ref reader, initialHeader);
-                pipe.Reader.AdvanceTo(readResult.Buffer.End);
-                pipe.Reader.Complete();
+                    result = codec.ReadValue(ref reader, initialHeader);
+                }
+                finally
+                {
+                    writer.Dispose();
+                }
             }
 
             return result;
@@ -892,28 +893,28 @@ namespace Orleans.Serialization.TestKit
 
         protected object RoundTripThroughUntypedSerializer(object original, out string formattedBitStream)
         {
-            var pipe = new Pipe();
             object result;
             using (var readerSession = SessionPool.GetSession())
             using (var writeSession = SessionPool.GetSession())
             {
-                var writer = Writer.Create(pipe.Writer, writeSession);
-                var serializer = ServiceProvider.GetService<Serializer<object>>();
-                serializer.Serialize(original, ref writer);
+                var writer = Writer.CreatePooled(writeSession);
+                try
+                {
+                    var serializer = ServiceProvider.GetService<Serializer<object>>();
+                    serializer.Serialize(original, ref writer);
 
-                _ = pipe.Writer.FlushAsync().AsTask().GetAwaiter().GetResult();
-                pipe.Writer.Complete();
+                    using var analyzerSession = SessionPool.GetSession();
+                    var output = writer.Output.Slice();
+                    formattedBitStream = BitStreamFormatter.Format(output, analyzerSession);
 
-                _ = pipe.Reader.TryRead(out var readResult);
+                    var reader = Reader.Create(output, readerSession);
 
-                using var analyzerSession = SessionPool.GetSession();
-                formattedBitStream = BitStreamFormatter.Format(readResult.Buffer, analyzerSession);
-
-                var reader = Reader.Create(readResult.Buffer, readerSession);
-
-                result = serializer.Deserialize(ref reader);
-                pipe.Reader.AdvanceTo(readResult.Buffer.End);
-                pipe.Reader.Complete();
+                    result = serializer.Deserialize(ref reader);
+                }
+                finally
+                {
+                    writer.Dispose();
+                }
             }
 
             return result;

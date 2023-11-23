@@ -78,11 +78,6 @@ CREATE TABLE OrleansStorage
 ) ROW_FORMAT = COMPRESSED KEY_BLOCK_SIZE = 16;
 ALTER TABLE OrleansStorage ADD INDEX IX_OrleansStorage (GrainIdHash, GrainTypeHash);
 
--- The following alters the column to JSON format if MySQL is at least of version 5.7.8.
--- See more at https://dev.mysql.com/doc/refman/5.7/en/json.html for JSON and
--- http://dev.mysql.com/doc/refman/5.7/en/comments.html for the syntax.
-/*!50708 ALTER TABLE OrleansStorage MODIFY COLUMN PayloadJson JSON */;
-
 DELIMITER $$
 
 CREATE PROCEDURE ClearStorage
@@ -172,7 +167,7 @@ BEGIN
     -- If the version number explicitly returned is still the same, Orleans interprets it so the update did not succeed
     -- and throws an InconsistentStateException.
     --
-    -- See further information at https://docs.microsoft.com/dotnet/orleans/grains/grain-persistence.
+    -- See further information at https://learn.microsoft.com/dotnet/orleans/grains/grain-persistence.
     IF _GrainStateVersion IS NOT NULL
     THEN
         UPDATE OrleansStorage

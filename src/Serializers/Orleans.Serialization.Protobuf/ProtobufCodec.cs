@@ -1,6 +1,5 @@
 using Google.Protobuf;
 using Orleans.Serialization.Buffers;
-using Orleans.Serialization.Buffers.Adaptors;
 using Orleans.Serialization.Cloning;
 using Orleans.Serialization.Codecs;
 using Orleans.Serialization.Serializers;
@@ -49,7 +48,7 @@ public sealed class ProtobufCodec : IGeneralizedCodec, IGeneralizedCopier, IType
             }
 
             var messageSize = protobufMessage.CalculateSize();
-            using var buffer = new PooledArrayBufferWriter();
+            using var buffer = new PooledBuffer();
             var spanBuffer = buffer.GetSpan(messageSize)[..messageSize];
             protobufMessage.WriteTo(spanBuffer);
 
@@ -182,7 +181,7 @@ public sealed class ProtobufCodec : IGeneralizedCodec, IGeneralizedCopier, IType
                     ReferenceCodec.MarkValueField(reader.Session);
                     var length = (int)reader.ReadVarUInt32();
 
-                    using (var buffer = new PooledArrayBufferWriter())
+                    using (var buffer = new PooledBuffer())
                     {
                         var spanBuffer = buffer.GetSpan(length)[..length];
                         reader.ReadBytes(spanBuffer);
@@ -223,7 +222,7 @@ public sealed class ProtobufCodec : IGeneralizedCodec, IGeneralizedCopier, IType
 
         var messageSize = protobufMessage.CalculateSize();
 
-        using var buffer = new PooledArrayBufferWriter();
+        using var buffer = new PooledBuffer();
         var spanBuffer = buffer.GetSpan(messageSize)[..messageSize];
 
         // Write the serialized payload

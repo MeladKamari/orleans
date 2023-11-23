@@ -23,7 +23,7 @@ namespace Orleans.Transactions.TestKit.Consistency
         private readonly HashSet<string> aborted;
         private readonly Dictionary<string, string> indoubt;
         private bool timeoutsOccurred;
-        private bool tolerateUnknownExceptions;
+        private readonly bool tolerateUnknownExceptions;
         private readonly IGrainFactory grainFactory;
 
         private readonly Dictionary<string, HashSet<string>> orderEdges = new Dictionary<string, HashSet<string>>();
@@ -146,14 +146,14 @@ namespace Orleans.Transactions.TestKit.Consistency
             foreach (var grainKvp in tuples)
             {
                 var pos = 0;
-                Action<string> fail = (msg) =>
+                void fail(string msg)
                 {
                     foreach (var kvp1 in grainKvp.Value)
                         foreach (var kvp2 in kvp1.Value)
                             foreach (var r in kvp2.Value)
                                 output($"g{grainKvp.Key} v{kvp1.Key} w:{kvp2.Key} a:{r}");
                     true.Should().BeFalse(msg);
-                };
+                }
 
                 HashSet<string> readersOfPreviousVersion = new HashSet<string>();
                 

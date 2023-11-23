@@ -33,17 +33,15 @@ namespace Orleans.EventSourcing.LogStorage
 
 
         private const int maxEntriesInNotifications = 200;
-
-
-        IGrainStorage globalGrainStorage;
-        string grainTypeName;   
+        private readonly IGrainStorage globalGrainStorage;
+        private readonly string grainTypeName;
 
         // the object containing the entire log, as retrieved from / sent to storage
-        LogStateWithMetaDataAndETag<TLogEntry> GlobalLog;
+        private LogStateWithMetaDataAndETag<TLogEntry> GlobalLog;
 
         // the confirmed view
-        TLogView ConfirmedViewInternal;
-        int ConfirmedVersionInternal;
+        private TLogView ConfirmedViewInternal;
+        private int ConfirmedVersionInternal;
 
         /// <inheritdoc/>
         protected override TLogView LastConfirmedView()
@@ -300,7 +298,7 @@ namespace Orleans.EventSourcing.LogStorage
                 return base.Merge(earlierMessage, laterMessage); // keep only the version number
         }
 
-        private SortedList<long, UpdateNotificationMessage> notifications = new SortedList<long,UpdateNotificationMessage>();
+        private readonly SortedList<long, UpdateNotificationMessage> notifications = new SortedList<long,UpdateNotificationMessage>();
 
         /// <inheritdoc/>
         protected override void OnNotificationReceived(INotificationMessage payload)
@@ -349,7 +347,7 @@ namespace Orleans.EventSourcing.LogStorage
 
 
 #if DEBUG
-        bool operation_in_progress;
+        private bool operation_in_progress;
 #endif
 
         [Conditional("DEBUG")]

@@ -6,7 +6,6 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Orleans.Configuration;
-using Orleans.Internal;
 using Orleans.Providers.Streams.Common;
 using Orleans.Runtime;
 using Orleans.Streams;
@@ -171,12 +170,12 @@ namespace Orleans.Providers.Streams.Generator
         {
             if (arg == null)
             {
-                throw new ArgumentNullException("arg");
+                throw new ArgumentNullException(nameof(arg));
             }
             generatorConfig = arg as IStreamGeneratorConfig;
             if (generatorConfig == null)
             {
-                throw new ArgumentOutOfRangeException("arg", "Arg must by of type IStreamGeneratorConfig");
+                throw new ArgumentOutOfRangeException(nameof(arg), "Arg must by of type IStreamGeneratorConfig");
             }
 
             // update generator on receivers
@@ -190,7 +189,7 @@ namespace Orleans.Providers.Streams.Generator
 
         private class Receiver : IQueueAdapterReceiver
         {
-            const int MaxDelayMs = 20;
+            private const int MaxDelayMs = 20;
             private readonly IQueueAdapterReceiverMonitor receiverMonitor;
             public IStreamGenerator QueueGenerator { private get; set; }
 

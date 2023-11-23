@@ -1,8 +1,6 @@
-using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.DependencyInjection;
-using Orleans;
 using Orleans.Messaging;
 using Orleans.Runtime.Membership;
 using Orleans.Configuration;
@@ -35,7 +33,7 @@ namespace UnitTests.MembershipTests
             var options = new ZooKeeperClusteringSiloOptions();
             options.ConnectionString = this.connectionString;
            
-            return new ZooKeeperBasedMembershipTable(this.Services.GetService<ILogger<ZooKeeperBasedMembershipTable>>(), Options.Create(options), this.clusterOptions);
+            return new ZooKeeperBasedMembershipTable(this.Services.GetService<ILogger<ZooKeeperBasedMembershipTable>>(), Options.Create(options), this._clusterOptions);
         }
 
         protected override IGatewayListProvider CreateGatewayListProvider(ILogger logger)
@@ -43,7 +41,7 @@ namespace UnitTests.MembershipTests
             var options = new ZooKeeperGatewayListProviderOptions();
             options.ConnectionString = this.connectionString;
 
-            return ActivatorUtilities.CreateInstance<ZooKeeperGatewayListProvider>(this.Services, Options.Create(options), this.clusterOptions);
+            return ActivatorUtilities.CreateInstance<ZooKeeperGatewayListProvider>(this.Services, Options.Create(options), this._clusterOptions);
         }
 
         protected override async Task<string> GetConnectionString()

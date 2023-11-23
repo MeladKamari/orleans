@@ -1,10 +1,5 @@
-
-using System;
 using System.Collections.Concurrent;
-using System.Threading;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Orleans;
 using Orleans.Placement;
 using Orleans.Providers.Streams.Generator;
 using Orleans.Runtime;
@@ -21,7 +16,7 @@ namespace TestGrains
         public const string StreamNamespace = "NonTransientError_RecoverableStream";
      
         // grain instance state
-        private ILogger logger;
+        private readonly ILogger logger;
         private IAsyncStream<GeneratedEvent> stream;
 
         private class FaultsState

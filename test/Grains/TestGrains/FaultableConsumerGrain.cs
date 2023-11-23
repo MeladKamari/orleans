@@ -1,10 +1,5 @@
-using System;
 using System.Diagnostics;
-using System.Threading;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Orleans;
-using Orleans.Runtime;
 using Orleans.Streams;
 using UnitTests.GrainInterfaces;
 
@@ -16,7 +11,7 @@ namespace UnitTests.Grains
         private int eventsConsumedCount;
         private int errorsCount;
         private int eventsFailedCount;
-        private ILogger logger;
+        private readonly ILogger logger;
         private StreamSubscriptionHandle<int> consumerHandle;
         private Stopwatch failPeriodTimer;
         private TimeSpan failPeriod;

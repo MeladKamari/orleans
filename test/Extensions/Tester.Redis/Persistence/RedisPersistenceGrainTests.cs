@@ -56,7 +56,7 @@ namespace Tester.Redis.Persistence
             protected override void CheckPreconditionsOrThrow() => TestUtils.CheckForRedis();
         }
 
-        private Fixture fixture;
+        private readonly Fixture fixture;
 
         public RedisPersistenceGrainTests(ITestOutputHelper output, Fixture fixture) : base(output, fixture)
         {
@@ -84,8 +84,8 @@ namespace Tester.Redis.Persistence
 
         // Redis specific tests
 
-        private GrainState state;
-        private IDatabase database;
+        private readonly GrainState state;
+        private readonly IDatabase database;
 
         [SkippableFact]
         public async Task Redis_InitializeWithNoStateTest()
@@ -94,7 +94,7 @@ namespace Tester.Redis.Persistence
             var result = await grain.DoRead();
 
             //Assert.NotNull(result);
-            Assert.Equal(default(GrainState), result);
+            Assert.Equal(default, result);
             //Assert.Equal(default(string), result.StringValue);
             //Assert.Equal(default(int), result.IntValue);
             //Assert.Equal(default(DateTime), result.DateTimeValue);
@@ -150,7 +150,7 @@ namespace Tester.Redis.Persistence
             var grain = fixture.GrainFactory.GetGrain<IGrainStorageGenericGrain<GrainState>>(54321);
             var data = await grain.DoRead();
 
-            var key = $"{ServiceId}/state/{grain.GetGrainId()}";
+            var key = $"{ServiceId}/state/{grain.GetGrainId()}/state";
             await database.HashSetAsync(key, new[] { new HashEntry("etag", "derp") });
 
             await Assert.ThrowsAsync<InconsistentStateException>(() => grain.DoWrite(state));

@@ -1,9 +1,4 @@
-using System;
-using System.Threading;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Orleans;
-using Orleans.Runtime;
 using UnitTests.GrainInterfaces;
 
 namespace UnitTests.Grains
@@ -11,7 +6,7 @@ namespace UnitTests.Grains
     internal class LivenessTestGrain : Grain, ILivenessTestGrain
     {
         private string label;
-        private ILogger logger;
+        private readonly ILogger logger;
         private Guid uniqueId;
 
         public LivenessTestGrain(ILoggerFactory loggerFactory)

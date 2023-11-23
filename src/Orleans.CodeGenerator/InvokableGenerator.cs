@@ -45,7 +45,14 @@ namespace Orleans.CodeGenerator
                 .AddMembers(fields);
 
             if (ctor != null)
+            {
                 classDeclaration = classDeclaration.AddMembers(ctor);
+            }
+
+            if (method.ResponseTimeoutTicks.HasValue)
+            {
+                classDeclaration = classDeclaration.AddMembers(GenerateResponseTimeoutPropertyMembers(libraryTypes, method.ResponseTimeoutTicks.Value));
+            }
 
             classDeclaration = AddOptionalMembers(classDeclaration,
                     GenerateGetArgumentCount(method),
@@ -77,8 +84,16 @@ namespace Orleans.CodeGenerator
                 }
             }
 
+            string returnValueInitializerMethod = null;
+            if (baseClassType.GetAttribute(libraryTypes.ReturnValueProxyAttribute) is { ConstructorArguments: { Length: > 0 } attrArgs })
+            {
+                returnValueInitializerMethod = (string)attrArgs[0].Value;
+            }
+
             while (baseClassType.HasAttribute(libraryTypes.SerializerTransparentAttribute))
+            {
                 baseClassType = baseClassType.BaseType;
+            }
 
             var invokerDescription = new GeneratedInvokerDescription(
                 interfaceDescription,
@@ -89,7 +104,8 @@ namespace Orleans.CodeGenerator
                 serializationHooks,
                 baseClassType,
                 ctorArgs,
-                compoundTypeAliasArgs);
+                compoundTypeAliasArgs,
+                returnValueInitializerMethod);
             return (classDeclaration, invokerDescription);
 
             static Accessibility GetAccessibility(InvokableInterfaceDescription interfaceDescription)
@@ -108,6 +124,29 @@ namespace Orleans.CodeGenerator
 
                 return accessibility;
             }
+        }
+
+        private static MemberDeclarationSyntax[] GenerateResponseTimeoutPropertyMembers(LibraryTypes libraryTypes, long value)
+        {
+            var timespanField = FieldDeclaration(
+                        VariableDeclaration(
+                            libraryTypes.TimeSpan.ToTypeSyntax(),
+                            SingletonSeparatedList(VariableDeclarator("_responseTimeoutValue")
+                            .WithInitializer(EqualsValueClause(
+                                InvocationExpression(
+                                    IdentifierName("global::System.TimeSpan").Member("FromTicks"),
+                                    ArgumentList(SeparatedList(new[]
+                                    {
+                                        Argument(LiteralExpression(SyntaxKind.NumericLiteralExpression, Literal(value)))
+                                    }))))))))
+                        .AddModifiers(Token(SyntaxKind.PrivateKeyword), Token(SyntaxKind.StaticKeyword), Token(SyntaxKind.ReadOnlyKeyword));
+
+            var responseTimeoutProperty = MethodDeclaration(NullableType(libraryTypes.TimeSpan.ToTypeSyntax()), "GetDefaultResponseTimeout")
+                .WithExpressionBody(ArrowExpressionClause(IdentifierName("_responseTimeoutValue")))
+                .WithSemicolonToken(Token(SyntaxKind.SemicolonToken))
+                .AddModifiers(Token(SyntaxKind.PublicKeyword), Token(SyntaxKind.OverrideKeyword));
+;
+            return new MemberDeclarationSyntax[] { timespanField, responseTimeoutProperty };
         }
 
         private static ClassDeclarationSyntax AddOptionalMembers(ClassDeclarationSyntax decl, params MemberDeclarationSyntax[] items)

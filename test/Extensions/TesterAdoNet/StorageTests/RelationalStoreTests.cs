@@ -1,11 +1,5 @@
-using System;
 using System.Data;
 using System.Data.Common;
-using System.IO;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
-using Orleans.Internal;
 using Orleans.Tests.SqlUtils;
 using UnitTests.General;
 using Xunit;
@@ -74,7 +68,7 @@ namespace UnitTests.StorageTests.AdoNet
                     p2.Size = dataToInsert.Length;
                     command.Parameters.Add(p2);
 
-                }, cancellationToken, CommandBehavior.SequentialAccess).ConfigureAwait(false);
+                }, CommandBehavior.SequentialAccess, cancellationToken).ConfigureAwait(false);
             }
         }
 
@@ -91,16 +85,16 @@ namespace UnitTests.StorageTests.AdoNet
             {
                 var streamSelector = (DbDataReader)selector;
                 var id = await streamSelector.GetValueAsync<int>("Id");
-                using(var ms = new MemoryStream())
-                {                    
-                    using(var downloadStream = streamSelector.GetStream(1, sut.Storage))
+                using (var ms = new MemoryStream())
+                {
+                    using (var downloadStream = streamSelector.GetStream(1, sut.Storage))
                     {
                         await downloadStream.CopyToAsync(ms);
 
                         return new StreamingTest { Id = id, StreamData = ms.ToArray() };
                     }
-                }                
-            }, cancellationToken, CommandBehavior.SequentialAccess).ConfigureAwait(false)).Single();
+                }
+            }, CommandBehavior.SequentialAccess, cancellationToken).ConfigureAwait(false)).Single();
         }
 
         protected static Task CancellationTokenTest(RelationalStorageForTesting sut, TimeSpan timeoutLimit)
@@ -115,7 +109,7 @@ namespace UnitTests.StorageTests.AdoNet
                     var task = sut.Storage.ReadAsync<int>(sut.CancellationTestQuery, tokenSource.Token);
                     if(!task.Wait(timeoutLimit.Add(TimeSpan.FromSeconds(2))))
                     {
-                        Assert.True(false, string.Format("Timeout limit {0} ms exceeded.", timeoutLimit.TotalMilliseconds));
+                        Assert.Fail(string.Format("Timeout limit {0} ms exceeded.", timeoutLimit.TotalMilliseconds));
                     }
                 }
                 catch(Exception ex)

@@ -55,13 +55,13 @@ namespace Orleans.Runtime.GrainDirectory
             return null;
         }
 
-        public Task<GrainAddress> Register(GrainAddress address) => throw new InvalidOperationException($"Cannot register client grain explicitly");
+        public Task<GrainAddress> Register(GrainAddress address, GrainAddress previousAddress) => throw new InvalidOperationException($"Cannot register client grain explicitly");
 
         public Task Unregister(GrainAddress address, UnregistrationCause cause) => throw new InvalidOperationException($"Cannot unregister client grain explicitly");
 
         private static void ThrowNotClientGrainId(GrainId grainId) => throw new InvalidOperationException($"{grainId} is not a client id");
 
-        public void CachePlacementDecision(GrainId grainId, SiloAddress siloAddress) { }
+        public void UpdateCache(GrainId grainId, SiloAddress siloAddress) { }
 
         public void InvalidateCache(GrainId grainId) { }
 

@@ -1,6 +1,3 @@
-﻿using System;
-using System.Threading;
-
 namespace UnitTests.TestHelper
 {
     [Serializable]
@@ -32,7 +29,7 @@ namespace UnitTests.TestHelper
         public void ThrowDisposedIfSet(Type type)
         {
             if (type == null)
-                throw new ArgumentNullException("type");
+                throw new ArgumentNullException(nameof(type));
             if (IsSet)
                 throw new ObjectDisposedException(type.Name);
         }

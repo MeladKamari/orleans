@@ -1,7 +1,4 @@
-using System;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq;
 using BenchmarkDotNet.Running;
 using Benchmarks.MapReduce;
 using Benchmarks.Ping;
@@ -10,7 +7,7 @@ using Benchmarks.GrainStorage;
 
 namespace Benchmarks
 {
-    class Program
+    internal class Program
     {
         private static readonly Dictionary<string, Action<string[]>> _benchmarks = new Dictionary<string, Action<string[]>>
         {
@@ -126,6 +123,13 @@ namespace Benchmarks
                     test.PingConcurrentHostedClient(blocksPerWorker: 10).GetAwaiter().GetResult();
                     test.Shutdown().GetAwaiter().GetResult();
                 }
+                GC.Collect();
+                {
+                    Console.WriteLine("## Hosted Client ##");
+                    var test = new PingBenchmark(numSilos: 1, startClient: false);
+                    test.PingConcurrentHostedClient().GetAwaiter().GetResult();
+                    test.Shutdown().GetAwaiter().GetResult();
+                }
             },
             ["ConcurrentPing_OneSilo"] = _ =>
             {
@@ -159,17 +163,19 @@ namespace Benchmarks
             },
             ["ConcurrentPing_SiloToSilo_Forever"] = _ =>
             {
-                Console.WriteLine("Press any key to begin.");
-                Console.ReadKey();
+                //Console.WriteLine("Press any key to begin.");
+                //Console.ReadKey();
                 Console.WriteLine("Press any key to end.");
                 Console.WriteLine("## Silo to Silo ##");
                 while (!Console.KeyAvailable)
                 {
+                    Console.WriteLine("Initializing");
                     var test = new PingBenchmark(numSilos: 2, startClient: false, grainsOnSecondariesOnly: true);
                     Console.WriteLine("Starting");
-                    test.PingConcurrentHostedClient(blocksPerWorker: 10).GetAwaiter().GetResult();
+                    test.PingConcurrentHostedClient(blocksPerWorker: 100).GetAwaiter().GetResult();
                     Console.WriteLine("Stopping");
                     test.Shutdown().GetAwaiter().GetResult();
+                    Console.WriteLine("Stopped");
                 }
 
                 Console.WriteLine("Interrupted by user");
@@ -193,6 +199,11 @@ namespace Benchmarks
             ["PingPongForever"] = _ =>
             {
                 new PingBenchmark().PingPongForever().GetAwaiter().GetResult();
+            },
+            ["PingForever_Min_Threads"] = _ =>
+            {
+                ThreadPool.SetMaxThreads(1, 1);
+                new PingBenchmark().PingForever().GetAwaiter().GetResult();
             },
             ["GrainStorage.Memory"] = _ =>
             {

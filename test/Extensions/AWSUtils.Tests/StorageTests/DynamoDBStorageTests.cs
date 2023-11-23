@@ -1,8 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Threading.Tasks;
-using Amazon.DynamoDBv2.Model;
+﻿using Amazon.DynamoDBv2.Model;
 using Xunit;
 
 namespace AWSUtils.Tests.StorageTests.AWSUtils
@@ -10,8 +6,8 @@ namespace AWSUtils.Tests.StorageTests.AWSUtils
     [TestCategory("Storage"), TestCategory("AWS"), TestCategory("DynamoDb")]
     public class DynamoDBStorageTests : IClassFixture<DynamoDBStorageTestsFixture>
     {
-        private string PartitionKey;
-        private UnitTestDynamoDBStorage manager;
+        private readonly string PartitionKey;
+        private readonly UnitTestDynamoDBStorage manager;
 
         public DynamoDBStorageTests(DynamoDBStorageTestsFixture fixture)
         {

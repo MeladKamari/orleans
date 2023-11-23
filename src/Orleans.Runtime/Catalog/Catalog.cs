@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics.Metrics;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
@@ -11,10 +11,8 @@ using Orleans.Configuration;
 using Orleans.GrainDirectory;
 using Orleans.Metadata;
 using Orleans.Runtime.GrainDirectory;
-using Orleans.Runtime.Placement;
 using Orleans.Runtime.Scheduler;
 using Orleans.Serialization.TypeSystem;
-using Orleans.Statistics;
 
 namespace Orleans.Runtime
 {
@@ -27,7 +25,7 @@ namespace Orleans.Runtime
         private readonly GrainDirectoryResolver grainDirectoryResolver;
         private readonly ILocalGrainDirectory directory;
         private readonly ActivationDirectory activations;
-        private IServiceProvider serviceProvider;
+        private readonly IServiceProvider serviceProvider;
         private readonly ILogger logger;
         private readonly string localSiloName;
         private readonly IOptions<GrainCollectionOptions> collectionOptions;
@@ -170,16 +168,6 @@ namespace Orleans.Runtime
         }
 
         /// <summary>
-        /// Register a new object to which messages can be delivered with the local lookup table and scheduler.
-        /// </summary>
-        /// <param name="activation"></param>
-        public void RegisterMessageTarget(IGrainContext activation)
-        {
-            activations.RecordNewTarget(activation);
-            CatalogInstruments.ActivationsCreated.Add(1);
-        }
-
-        /// <summary>
         /// Unregister message target and stop delivering messages to it
         /// </summary>
         /// <param name="activation"></param>
@@ -248,14 +236,17 @@ namespace Orleans.Runtime
         /// <returns></returns>
         public IGrainContext GetOrCreateActivation(
             in GrainId grainId,
-            Dictionary<string, object> requestContextData)
+            Dictionary<string, object> requestContextData,
+            MigrationContext rehydrationContext)
         {
             if (TryGetGrainContext(grainId, out var result))
             {
+                rehydrationContext?.Dispose();
                 return result;
             }
             else if (grainId.IsSystemTarget())
             {
+                rehydrationContext?.Dispose();
                 return null;
             }
 
@@ -264,44 +255,65 @@ namespace Orleans.Runtime
             {
                 if (TryGetGrainContext(grainId, out result))
                 {
+                    rehydrationContext?.Dispose();
                     return result;
                 }
 
                 if (!SiloStatusOracle.CurrentStatus.IsTerminating())
                 {
-                    var address = GrainAddress.GetAddress(Silo, grainId, new ActivationId(Guid.NewGuid()));
+                    var address = GrainAddress.GetAddress(Silo, grainId, ActivationId.NewId());
                     result = this.grainActivator.CreateInstance(address);
-                    RegisterMessageTarget(result);
+                    activations.RecordNewTarget(result);
                 }
             } // End lock
 
             if (result is null)
             {
+                rehydrationContext?.Dispose();
+                return UnableToCreateActivation(this, grainId);
+            }
+
+            CatalogInstruments.ActivationsCreated.Add(1);
+
+            // Rehydration occurs before activation.
+            if (rehydrationContext is not null)
+            {
+                result.Rehydrate(rehydrationContext);
+            }
+
+            // Initialize the new activation asynchronously.
+            var cancellation = new CancellationTokenSource(collectionOptions.Value.ActivationTimeout);
+            result.Activate(requestContextData, cancellation.Token);
+            return result;
+
+            [MethodImpl(MethodImplOptions.NoInlining)]
+            static IGrainContext UnableToCreateActivation(Catalog self, GrainId grainId)
+            {
                 // Did not find and did not start placing new
-                if (logger.IsEnabled(LogLevel.Debug))
+                if (self.logger.IsEnabled(LogLevel.Debug))
                 {
-                    logger.LogDebug((int)ErrorCode.CatalogNonExistingActivation2, "Non-existent activation for grain {GrainId}", grainId);
+                    if (self.SiloStatusOracle.CurrentStatus.IsTerminating())
+                    {
+                        self.logger.LogDebug((int)ErrorCode.CatalogNonExistingActivation2, "Unable to create activation for grain {GrainId} because this silo is terminating", grainId);
+                    }
+                    else
+                    {
+                        self.logger.LogDebug((int)ErrorCode.CatalogNonExistingActivation2, "Unable to create activation for grain {GrainId}", grainId);
+                    }
                 }
 
                 CatalogInstruments.NonExistentActivations.Add(1);
 
-                this.directory.InvalidateCacheEntry(grainId);
+                self.grainLocator.InvalidateCache(grainId);
 
                 // Unregister the target activation so we don't keep getting spurious messages.
                 // The time delay (one minute, as of this writing) is to handle the unlikely but possible race where
                 // this request snuck ahead of another request, with new placement requested, for the same activation.
-                // If the activation registration request from the new placement somehow sneaks ahead of this unregistration,
+                // If the activation registration request from the new placement somehow sneaks ahead of this deregistration,
                 // we want to make sure that we don't unregister the activation we just created.
-                var address = new GrainAddress { SiloAddress = Silo, GrainId = grainId };
-                _ = this.UnregisterNonExistentActivation(address);
+                var address = new GrainAddress { SiloAddress = self.Silo, GrainId = grainId };
+                _ = self.UnregisterNonExistentActivation(address);
                 return null;
-            }
-            else
-            {
-                // Initialize the new activation asynchronously.
-                var cancellation = new CancellationTokenSource(collectionOptions.Value.ActivationTimeout);
-                result.Activate(requestContextData, cancellation.Token);
-                return result;
             }
         }
 
@@ -324,7 +336,7 @@ namespace Orleans.Runtime
         /// <summary>
         /// Try to get runtime data for an activation
         /// </summary>
-        public bool TryGetGrainContext(GrainId grainId, out IGrainContext data)
+        private bool TryGetGrainContext(GrainId grainId, out IGrainContext data)
         {
             data = activations.FindTarget(grainId);
             return data != null;
@@ -433,7 +445,7 @@ namespace Orleans.Runtime
                             var activationData = activation.Value;
                             var placementStrategy = activationData.GetComponent<PlacementStrategy>();
                             var isUsingGrainDirectory = placementStrategy is { IsUsingGrainDirectory: true };
-                            if (!isUsingGrainDirectory || grainDirectoryResolver.HasNonDefaultDirectory(activationData.GrainId.Type)) continue;
+                            if (!isUsingGrainDirectory || !grainDirectoryResolver.IsUsingDhtDirectory(activationData.GrainId.Type)) continue;
                             if (!updatedSilo.Equals(directory.GetPrimaryForGrain(activationData.GrainId))) continue;
 
                             activationsToShutdown.Add(activationData);
@@ -448,11 +460,14 @@ namespace Orleans.Runtime
                     }
                 }
 
-                logger.LogInformation(
-                    (int)ErrorCode.Catalog_SiloStatusChangeNotification,
-                    "Catalog is deactivating {Count} activations due to a failure of silo {Silo}, since it is a primary directory partition to these grain ids.",
-                    activationsToShutdown.Count,
-                    updatedSilo.ToStringWithHashCode());
+                if (activationsToShutdown.Count > 0)
+                {
+                    logger.LogInformation(
+                        (int)ErrorCode.Catalog_SiloStatusChangeNotification,
+                        "Catalog is deactivating {Count} activations due to a failure of silo {Silo}, since it is a primary directory partition to these grain ids.",
+                        activationsToShutdown.Count,
+                        updatedSilo.ToStringWithHashCode());
+                }
             }
             finally
             {
@@ -464,6 +479,18 @@ namespace Orleans.Runtime
                     StartDeactivatingActivations(reason, activationsToShutdown);
                 }
             }
+        }
+
+        public ValueTask AcceptMigratingGrains(List<GrainMigrationPackage> migratingGrains)
+        {
+            foreach (var package in migratingGrains)
+            {
+                // If the activation does not exist, create it and provide it with the migration context while doing so.
+                // If the activation already exists or cannot be created, it is too late to perform migration, so ignore the request.
+                GetOrCreateActivation(package.GrainId, requestContextData: null, package.MigrationContext);
+            }
+
+            return default;
         }
     }
 }

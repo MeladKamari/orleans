@@ -1,5 +1,4 @@
 using System.Collections.Immutable;
-using System.Linq;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -34,6 +33,9 @@ namespace Orleans.Analyzers
             var symbol = context.SemanticModel.GetDeclaredSymbol(syntax, context.CancellationToken);
 
             if (symbol.ContainingType.TypeKind != TypeKind.Interface) return;
+
+            // ignore static members
+            if (symbol.IsStatic) return;
 
             var isIAddressableInterface = false;
             foreach (var implementedInterface in symbol.ContainingType.AllInterfaces)

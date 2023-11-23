@@ -1,7 +1,6 @@
 ﻿using System;
 using Microsoft.Extensions.Logging;
 using Orleans.Providers.Streams.Common;
-using Orleans.Runtime;
 using Orleans.Configuration;
 
 namespace Orleans.Streaming.EventHubs
@@ -23,7 +22,7 @@ namespace Orleans.Streaming.EventHubs
         private double cachePressureContributionCount;
         private DateTime nextCheckedTime;
         private bool isUnderPressure;
-        private double flowControlThreshold;
+        private readonly double flowControlThreshold;
 
         /// <summary>
         /// Constructor

@@ -92,7 +92,7 @@ namespace Orleans.Transactions
                      info.RecordRead(this.participantId, record.Timestamp);
 
                      // perform the read 
-                     TResult result = default(TResult);
+                     TResult result = default;
                      try
                      {
                          detectReentrancy = true;
@@ -190,7 +190,7 @@ namespace Orleans.Transactions
 
         public void Participate(IGrainLifecycle lifecycle)
         {
-            lifecycle.Subscribe<TransactionalState<TState>>(GrainLifecycleStage.SetupState, (ct) => OnSetupState(ct, SetupResourceFactory));
+            lifecycle.Subscribe<TransactionalState<TState>>(GrainLifecycleStage.SetupState, (ct) => OnSetupState(SetupResourceFactory, ct));
         }
 
         private static void SetupResourceFactory(IGrainContext context, string stateName, TransactionQueue<TState> queue)
@@ -202,7 +202,7 @@ namespace Orleans.Transactions
             context.RegisterResourceFactory<ITransactionManager>(stateName, () => new TransactionManager<TState>(queue));
         }
 
-        internal async Task OnSetupState(CancellationToken ct, Action<IGrainContext, string, TransactionQueue<TState>> setupResourceFactory)
+        internal async Task OnSetupState(Action<IGrainContext, string, TransactionQueue<TState>> setupResourceFactory, CancellationToken ct)
         {
             if (ct.IsCancellationRequested) return;
 
@@ -212,7 +212,7 @@ namespace Orleans.Transactions
             ITransactionalStateStorage<TState> storage = storageFactory.Create<TState>(this.config.StorageName, this.config.StateName);
 
             // setup transaction processing pipe
-            Action deactivate = () => grainRuntime.DeactivateOnIdle(context);
+            void deactivate() => grainRuntime.DeactivateOnIdle(context);
             var options = this.context.ActivationServices.GetRequiredService<IOptions<TransactionalStateOptions>>();
             var clock = this.context.ActivationServices.GetRequiredService<IClock>();
             var timerManager = this.context.ActivationServices.GetRequiredService<ITimerManager>();

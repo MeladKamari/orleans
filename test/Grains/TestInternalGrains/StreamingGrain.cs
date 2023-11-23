@@ -1,11 +1,5 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Orleans;
 using Orleans.Concurrency;
 using Orleans.Providers;
 using Orleans.Runtime;
@@ -32,7 +26,7 @@ namespace UnitTests.Grains
 
         public override string ToString()
         {
-            return String.Format("{0}", Data);
+            return string.Format("{0}", Data);
         }
     }
 
@@ -65,7 +59,7 @@ namespace UnitTests.Grains
         public static ConsumerObserver NewObserver(ILogger logger)
         {
             if (null == logger)
-                throw new ArgumentNullException("logger");
+                throw new ArgumentNullException(nameof(logger));
             return new ConsumerObserver(logger);
         }
 
@@ -189,7 +183,7 @@ namespace UnitTests.Grains
 
             _itemsProduced = 0;
             _expectedItemsProduced = 0;
-            _streamId = default(Guid);
+            _streamId = default;
             _providerName = null;
             _cleanedUpFlag = new InterlockedFlag();
             _observerDisposedYet = false;
@@ -199,7 +193,7 @@ namespace UnitTests.Grains
         public static ProducerObserver NewObserver(ILogger logger, IGrainFactory grainFactory)
         {
             if (null == logger)
-                throw new ArgumentNullException("logger");
+                throw new ArgumentNullException(nameof(logger));
             return new ProducerObserver(logger, grainFactory);
         }
 
@@ -246,11 +240,11 @@ namespace UnitTests.Grains
             _cleanedUpFlag.ThrowNotInitializedIfSet();
 
             if (0 >= count)
-                throw new ArgumentOutOfRangeException("count", "The count must be greater than zero.");
+                throw new ArgumentOutOfRangeException(nameof(count), "The count must be greater than zero.");
             _expectedItemsProduced += count;
             _logger.LogInformation("ProducerObserver.ProduceSequentialSeries: StreamId={StreamId}, num items to produce={Count}.", _streamId, count);
             for (var i = 1; i <= count; ++i)
-                await ProduceItem(String.Format("sequential#{0}", i));
+                await ProduceItem(string.Format("sequential#{0}", i));
         }
 
         public Task ProduceParallelSeries(int count)
@@ -258,17 +252,17 @@ namespace UnitTests.Grains
             _cleanedUpFlag.ThrowNotInitializedIfSet();
 
             if (0 >= count)
-                throw new ArgumentOutOfRangeException("count", "The count must be greater than zero.");
+                throw new ArgumentOutOfRangeException(nameof(count), "The count must be greater than zero.");
             _logger.LogInformation("ProducerObserver.ProduceParallelSeries: streamId={StreamId}, num items to produce={Count}.", _streamId, count);
             _expectedItemsProduced += count;
             var tasks = new Task<bool>[count];
             for (var i = 1; i <= count; ++i)
             {
                 int capture = i;
-                Func<Task<bool>> func = async () =>
-                    {
-                        return await ProduceItem($"parallel#{capture}");
-                    };
+                async Task<bool> func()
+                {
+                    return await ProduceItem($"parallel#{capture}");
+                }
                 // Need to call on different threads to force parallel execution.
                 tasks[capture - 1] = Task.Factory.StartNew(func).Unwrap();
             }
@@ -302,7 +296,7 @@ namespace UnitTests.Grains
         {
             _logger.LogInformation("ProducerObserver.RemoveTimer: streamId={StreamId}.", _streamId);
             if (handle == null)
-                throw new ArgumentNullException("handle");
+                throw new ArgumentNullException(nameof(handle));
             if (!_timers.Remove(handle))
                 throw new InvalidOperationException("handle not found");
         }
@@ -402,13 +396,13 @@ namespace UnitTests.Grains
             public static TimerState NewTimer(Func<Func<object, Task>, IDisposable> startTimerFunc, Func<string, Task<bool>> produceItemFunc, Action<IDisposable> onDisposeFunc, int count)
             {
                 if (null == startTimerFunc)
-                    throw new ArgumentNullException("startTimerFunc");
+                    throw new ArgumentNullException(nameof(startTimerFunc));
                 if (null == produceItemFunc)
-                    throw new ArgumentNullException("produceItemFunc");
+                    throw new ArgumentNullException(nameof(produceItemFunc));
                 if (null == onDisposeFunc)
-                    throw new ArgumentNullException("onDisposeFunc");
+                    throw new ArgumentNullException(nameof(onDisposeFunc));
                 if (0 >= count)
-                    throw new ArgumentOutOfRangeException("count", count, "argument must be > 0");
+                    throw new ArgumentOutOfRangeException(nameof(count), count, "argument must be > 0");
                 var newOb = new TimerState(produceItemFunc, onDisposeFunc, count);
                 newOb.Handle = startTimerFunc(newOb.OnTickAsync);
                 if (null == newOb.Handle)
@@ -430,7 +424,7 @@ namespace UnitTests.Grains
                 if (_started && !_disposedFlag.IsSet)
                 {
                     --_counter;
-                    bool shouldContinue = await _produceItemFunc(String.Format("periodic#{0}", _counter));
+                    bool shouldContinue = await _produceItemFunc(string.Format("periodic#{0}", _counter));
                     if (!shouldContinue || 0 == _counter)
                         Dispose();
                 }
@@ -926,7 +920,7 @@ namespace UnitTests.Grains
 
             if (string.IsNullOrWhiteSpace(streamNamespace))
             {
-                throw new ArgumentException("namespace is required (must not be null or whitespace)", "streamNamespace");
+                throw new ArgumentException("namespace is required (must not be null or whitespace)", nameof(streamNamespace));
             }
 
             ConsumerObserver consumerObserver = ConsumerObserver.NewObserver(_logger);

@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Orleans.Configuration;
 using Orleans.Runtime.GrainDirectory;
+using Orleans.Runtime.Internal;
 using Orleans.Runtime.Versions;
 
 namespace Orleans.Runtime.Placement
@@ -163,24 +164,31 @@ namespace Orleans.Runtime.Placement
             // Verify that the result from the cache has not been invalidated by the message being addressed.
             return message.CacheInvalidationHeader switch
             {
-                { Count: > 0 } invalidAddresses => CachedAddressIsValidCore(message, cachedAddress, invalidAddresses),
+                { Count: > 0 } cacheUpdates => CachedAddressIsValidCore(message, cachedAddress, cacheUpdates),
                 _ => true
             };
 
             [MethodImpl(MethodImplOptions.NoInlining)]
-            bool CachedAddressIsValidCore(Message message, GrainAddress cachedAddress, List<GrainAddress> invalidAddresses)
+            bool CachedAddressIsValidCore(Message message, GrainAddress cachedAddress, List<GrainAddressCacheUpdate> cacheUpdates)
             {
                 var resultIsValid = true;
                 if (_logger.IsEnabled(LogLevel.Debug))
                 {
-                    _logger.LogDebug("Invalidating {Count} cached entries for message {Message}", invalidAddresses.Count, message);
+                    _logger.LogDebug("Invalidating {Count} cached entries for message {Message}", cacheUpdates.Count, message);
                 }
 
-                foreach (var address in invalidAddresses)
+                foreach (var update in cacheUpdates)
                 {
-                    // Invalidate the cache entries while we are examining them.
-                    _grainLocator.InvalidateCache(address);
-                    if (cachedAddress.Matches(address))
+                    // Invalidate/update cache entries while we are examining them.
+                    var invalidAddress = update.InvalidGrainAddress;
+                    var validAddress = update.ValidGrainAddress;
+                    _grainLocator.UpdateCache(update);
+
+                    if (cachedAddress.Matches(validAddress))
+                    {
+                        resultIsValid = true;
+                    }
+                    else if (cachedAddress.Matches(invalidAddress))
                     {
                         resultIsValid = false;
                     }
@@ -190,12 +198,28 @@ namespace Orleans.Runtime.Placement
             }
         }
 
+        /// <summary>
+        /// Places a grain without considering the grain's existing location, if any.
+        /// </summary>
+        /// <param name="grainId">The grain id of the grain being placed.</param>
+        /// <param name="requestContextData">The request context, which will be available to the placement strategy.</param>
+        /// <param name="placementStrategy">The placement strategy to use.</param>
+        /// <returns>A location for the new activation.</returns>
+        public Task<SiloAddress> PlaceGrainAsync(GrainId grainId, Dictionary<string, object> requestContextData, PlacementStrategy placementStrategy)
+        {
+            var target = new PlacementTarget(grainId, requestContextData, default, 0);
+            var director = _directorResolver.GetPlacementDirector(placementStrategy);
+            return director.OnAddActivation(placementStrategy, target, this);
+        }
+
         private class PlacementWorker
         {
             private readonly Dictionary<GrainId, GrainPlacementWorkItem> _inProgress = new();
             private readonly SingleWaiterAutoResetEvent _workSignal = new();
             private readonly ILogger _logger;
+#pragma warning disable IDE0052 // Remove unread private members. Justification: retained for debugging purposes
             private readonly Task _processLoopTask;
+#pragma warning restore IDE0052 // Remove unread private members
             private readonly object _lockObj = new();
             private readonly PlacementService _placementService;
             private List<(Message Message, TaskCompletionSource<bool> Completion)> _messages = new();
@@ -204,6 +228,8 @@ namespace Orleans.Runtime.Placement
             {
                 _logger = placementService._logger;
                 _placementService = placementService;
+
+                using var _ = new ExecutionContextSuppressor();
                 _processLoopTask = Task.Run(ProcessLoop);
             }
 
@@ -258,7 +284,7 @@ namespace Orleans.Runtime.Placement
                                 if (workItem.Result is null)
                                 {
                                     // Note that the first message is used as the target to place the message,
-                                    // so if subsequent messsages do not agree with the first message's interface
+                                    // so if subsequent messages do not agree with the first message's interface
                                     // type or version, then they may be sent to an incompatible silo, which is
                                     // fine since the remote silo will handle that incompatibility.
                                     workItem.Result = GetOrPlaceActivationAsync(message.Message);
@@ -352,7 +378,7 @@ namespace Orleans.Runtime.Placement
                 }
 
                 _placementService._grainLocator.InvalidateCache(targetGrain);
-                _placementService._grainLocator.CachePlacementDecision(targetGrain, siloAddress);
+                _placementService._grainLocator.UpdateCache(targetGrain, siloAddress);
                 return siloAddress;
             }
 

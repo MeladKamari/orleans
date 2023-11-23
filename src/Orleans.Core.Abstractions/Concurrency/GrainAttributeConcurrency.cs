@@ -14,7 +14,7 @@ namespace Orleans.Concurrency
     /// that may significantly improve the performance of your application.
     /// </para>
     /// </summary>
-    [InvokableCustomInitializer(nameof(RequestBase.AddInvokeMethodOptions), InvokeMethodOptions.ReadOnly)]
+    [InvokableCustomInitializer(nameof(IRequest.AddInvokeMethodOptions), InvokeMethodOptions.ReadOnly)]
     [AttributeUsage(AttributeTargets.Method)]
     public sealed class ReadOnlyAttribute : Attribute
     {
@@ -88,7 +88,7 @@ namespace Orleans.Concurrency
     /// Note that this attribute is applied to method declaration in the grain interface,
     /// and not to the method in the implementation class itself.
     /// </remarks>
-    [InvokableCustomInitializer(nameof(RequestBase.AddInvokeMethodOptions), InvokeMethodOptions.AlwaysInterleave)]
+    [InvokableCustomInitializer(nameof(IRequest.AddInvokeMethodOptions), InvokeMethodOptions.AlwaysInterleave)]
     [AttributeUsage(AttributeTargets.Method)]
     public sealed class AlwaysInterleaveAttribute : Attribute
     {
@@ -100,7 +100,7 @@ namespace Orleans.Concurrency
     /// </summary>
     /// <remarks>
     /// The callback method name should point to a public static function declared on the same class
-    /// and having the following signature: <c>public static bool MayInterleave(InvokeMethodRequest req)</c>
+    /// and having the following signature: <c>public static bool MayInterleave(IInvokable req)</c>
     /// </remarks>
     [AttributeUsage(AttributeTargets.Class)]
     public sealed class MayInterleaveAttribute : Attribute, IGrainPropertiesProviderAttribute
@@ -109,7 +109,8 @@ namespace Orleans.Concurrency
         /// Initializes a new instance of the <see cref="MayInterleaveAttribute"/> class.
         /// </summary>
         /// <param name="callbackMethodName">
-        /// The callback method name.
+        /// The callback method name. This should resolve to a method with the 
+        /// following signature: <c>public static bool NameOfMethod(IInvokable req)</c>
         /// </param>
         public MayInterleaveAttribute(string callbackMethodName)
         {
@@ -132,7 +133,7 @@ namespace Orleans.Concurrency
     /// <summary>
     /// Indicates that a method on a grain interface is one-way and that no response message will be sent to the caller.
     /// </summary>
-    [InvokableCustomInitializer(nameof(RequestBase.AddInvokeMethodOptions), InvokeMethodOptions.OneWay)]
+    [InvokableCustomInitializer(nameof(IRequest.AddInvokeMethodOptions), InvokeMethodOptions.OneWay)]
     [AttributeUsage(AttributeTargets.Method)]
     public sealed class OneWayAttribute : Attribute
     {

@@ -1,14 +1,7 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Net;
-using System.Threading;
-using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-
-using Orleans;
 using Orleans.Concurrency;
 using Orleans.Configuration;
 using Orleans.Placement;
@@ -204,7 +197,7 @@ namespace UnitTests.Grains
     [PreferLocalPlacement]
     public class LocalContentGrain : Grain, ILocalContentGrain
     {
-        private ILogger logger;
+        private readonly ILogger logger;
         private object cachedContent;
         internal static ILocalContentGrain InstanceIdForThisSilo;
 
@@ -236,7 +229,7 @@ namespace UnitTests.Grains
 
     public class TestContentGrain : Grain, ITestContentGrain
     {
-        private ILogger logger;
+        private readonly ILogger logger;
 
         public TestContentGrain(ILoggerFactory loggerFactory)
         {

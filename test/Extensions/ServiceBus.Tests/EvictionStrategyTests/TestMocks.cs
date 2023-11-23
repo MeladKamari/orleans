@@ -1,8 +1,6 @@
 using Orleans.Providers.Streams.Common;
 using Orleans.Streaming.EventHubs;
 using Orleans.Streams;
-using System;
-using System.Collections.Generic;
 using Microsoft.Extensions.Logging;
 using Orleans.Runtime;
 using Azure.Messaging.EventHubs;
@@ -30,8 +28,8 @@ namespace ServiceBus.Tests.EvictionStrategyTests
     public class MockEventHubCacheAdaptor : EventHubDataAdapter
     {
         private long sequenceNumberCounter = 0;
-        private int eventIndex = 1;
-        private string eventHubOffset = "OffSet";
+        private readonly int eventIndex = 1;
+        private readonly string eventHubOffset = "OffSet";
         public MockEventHubCacheAdaptor(Orleans.Serialization.Serializer serializer) : base(serializer)
         { }
 

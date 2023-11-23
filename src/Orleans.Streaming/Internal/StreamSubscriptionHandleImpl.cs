@@ -57,10 +57,10 @@ namespace Orleans.Streams
             StreamSequenceToken token,
             string filterData)
         {
-            this.subscriptionId = subscriptionId ?? throw new ArgumentNullException("subscriptionId");
+            this.subscriptionId = subscriptionId ?? throw new ArgumentNullException(nameof(subscriptionId));
             this.observer = observer;
             this.batchObserver = batchObserver;
-            this.streamImpl = streamImpl ?? throw new ArgumentNullException("streamImpl");
+            this.streamImpl = streamImpl ?? throw new ArgumentNullException(nameof(streamImpl));
             this.filterData = filterData;
             this.isRewindable = streamImpl.IsRewindable;
             if (IsRewindable)
@@ -265,7 +265,7 @@ namespace Orleans.Streams
 
         public override string ToString()
         {
-            return String.Format("StreamSubscriptionHandleImpl:Stream={0},HandleId={1}", IsValid ? streamImpl.InternalStreamId.ToString() : "null", HandleId);
+            return string.Format("StreamSubscriptionHandleImpl:Stream={0},HandleId={1}", IsValid ? streamImpl.InternalStreamId.ToString() : "null", HandleId);
         }
     }
 }

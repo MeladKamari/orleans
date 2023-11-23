@@ -1,26 +1,17 @@
-using System;
-using System.Threading.Tasks;
-using System.Linq;
-using Orleans.Hosting;
 using Orleans.TestingHost;
 using BenchmarkGrainInterfaces.Transaction;
 using TestExtensions;
 using Microsoft.Extensions.DependencyInjection;
 using Orleans.Transactions;
-using Orleans.Configuration;
-using Orleans.Runtime;
-using System.Collections.Generic;
-using Microsoft.Extensions.Logging;
-using System.Text;
 
 namespace Benchmarks.Transactions
 {
     public class TransactionBenchmark : IDisposable
     {
         private TestCluster host;
-        private int runs;
-        private int transactionsPerRun;
-        private int concurrent;
+        private readonly int runs;
+        private readonly int transactionsPerRun;
+        private readonly int concurrent;
 
         public TransactionBenchmark(int runs, int transactionsPerRun, int concurrent)
         {

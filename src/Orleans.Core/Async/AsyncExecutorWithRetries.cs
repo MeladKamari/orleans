@@ -44,7 +44,7 @@ namespace Orleans.Internal
             TimeSpan maxExecutionTime,
             IBackoffProvider onErrorBackOff)
         {
-            Func<int, Task<bool>> function = async (int i) => { await action(i); return true; };
+            async Task<bool> function(int i) { await action(i); return true; }
             return ExecuteWithRetriesHelper<bool>(
                 function,
                 0,
@@ -137,7 +137,7 @@ namespace Orleans.Internal
             int maxNumErrorTries,
             Func<T, int, bool> retryValueFilter,
             Func<Exception, int, bool> retryExceptionFilter,
-            TimeSpan maxExecutionTime = default(TimeSpan),
+            TimeSpan maxExecutionTime = default,
             IBackoffProvider onSuccessBackOff = null,
             IBackoffProvider onErrorBackOff = null)
         {
@@ -202,7 +202,7 @@ namespace Orleans.Internal
             IBackoffProvider onSuccessBackOff = null,
             IBackoffProvider onErrorBackOff = null)
         {
-            T result = default(T);
+            T result = default;
             ExceptionDispatchInfo lastExceptionInfo = null;
             bool retry;
             var callCounter = 0;
@@ -211,7 +211,7 @@ namespace Orleans.Internal
             {
                 retry = false;
 
-                if (maxExecutionTime != Constants.INFINITE_TIMESPAN && maxExecutionTime != default(TimeSpan))
+                if (maxExecutionTime != Constants.INFINITE_TIMESPAN && maxExecutionTime != default)
                 {
                     DateTime now = DateTime.UtcNow;
                     if (now - startExecutionTime > maxExecutionTime)
@@ -346,10 +346,10 @@ namespace Orleans.Internal
         /// </exception>
         public ExponentialBackoff(TimeSpan minDelay, TimeSpan maxDelay, TimeSpan step)
         {
-            if (minDelay <= TimeSpan.Zero) throw new ArgumentOutOfRangeException("minDelay", minDelay, "ExponentialBackoff min delay must be a positive number.");
-            if (maxDelay <= TimeSpan.Zero) throw new ArgumentOutOfRangeException("maxDelay", maxDelay, "ExponentialBackoff max delay must be a positive number.");
-            if (step <= TimeSpan.Zero) throw new ArgumentOutOfRangeException("step", step, "ExponentialBackoff step must be a positive number.");
-            if (minDelay >= maxDelay) throw new ArgumentOutOfRangeException("minDelay", minDelay, "ExponentialBackoff min delay must be greater than max delay.");
+            if (minDelay <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(minDelay), minDelay, "ExponentialBackoff min delay must be a positive number.");
+            if (maxDelay <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(maxDelay), maxDelay, "ExponentialBackoff max delay must be a positive number.");
+            if (step <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(step), step, "ExponentialBackoff step must be a positive number.");
+            if (minDelay >= maxDelay) throw new ArgumentOutOfRangeException(nameof(minDelay), minDelay, "ExponentialBackoff min delay must be greater than max delay.");
 
             this.minDelay = minDelay;
             this.maxDelay = maxDelay;

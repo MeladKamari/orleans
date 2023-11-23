@@ -31,7 +31,7 @@ namespace Orleans.Transactions.State
         private int failCounter;
 
         // collection tasks
-        private Dictionary<DateTime, PreparedMessages> unprocessedPreparedMessages;
+        private readonly Dictionary<DateTime, PreparedMessages> unprocessedPreparedMessages;
         private class PreparedMessages
         {
             public PreparedMessages(TransactionalStatus status)
@@ -165,7 +165,7 @@ namespace Orleans.Transactions.State
             }
             catch (Exception exception)
             {
-                logger.LogError(exception, $"Transaction abort due to internal error in {nameof(EnqueueCommit)}", exception);
+                logger.LogError(exception, $"Transaction abort due to internal error in {nameof(EnqueueCommit)}");
                 await NotifyOfAbort(record, TransactionalStatus.UnknownException, exception);
             }
         }
@@ -426,7 +426,23 @@ namespace Orleans.Transactions.State
         /// <returns></returns>
         public Task Ready()
         {
-            return this.readyTask;
+            if (this.readyTask.Status == TaskStatus.RanToCompletion)
+            {
+                return readyTask;
+            }
+            return ReadyAsync();
+            async Task ReadyAsync()
+            {
+                try
+                {
+                    await readyTask;
+                }
+                catch (Exception exception)
+                {
+                    logger.LogWarning(exception, "Exception in TransactionQueue");
+                    await AbortAndRestore(TransactionalStatus.UnknownException, exception);
+                }
+            }
         }
 
         private async Task Restore()

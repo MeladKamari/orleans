@@ -1,8 +1,4 @@
-using System;
-using System.Collections.Generic;
-using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
-using Orleans;
 using Orleans.Runtime;
 using TestExtensions;
 using UnitTests.GrainInterfaces;
@@ -13,12 +9,12 @@ namespace DefaultCluster.Tests
     public class ClientAddressableTests : HostedTestClusterEnsureDefaultStarted
     {
         private object anchor;
-        private IRuntimeClient runtimeClient;
+        private readonly IRuntimeClient runtimeClient;
 
         private class MyPseudoGrain : IClientAddressableTestClientObject
         {
             private int counter = 0;
-            private List<int> numbers = new List<int>();
+            private readonly List<int> numbers = new List<int>();
 
             public Task<string> OnHappyPath(string message)
             {
@@ -60,7 +56,7 @@ namespace DefaultCluster.Tests
 
         private class MyProducer : IClientAddressableTestProducer
         {
-            int counter = 0;
+            private int counter = 0;
 
             public Task<int> Poll()
             {

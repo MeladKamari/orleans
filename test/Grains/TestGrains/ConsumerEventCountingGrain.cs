@@ -1,9 +1,4 @@
-using System;
-using System.Threading;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Orleans;
-using Orleans.Runtime;
 using Orleans.Streams;
 using UnitTests.GrainInterfaces;
 
@@ -12,7 +7,7 @@ namespace UnitTests.Grains
     public class ConsumerEventCountingGrain : Grain, IConsumerEventCountingGrain
     {
         private int _numConsumedItems;
-        private ILogger _logger;
+        private readonly ILogger _logger;
         private IAsyncObservable<int> _consumer;
         private StreamSubscriptionHandle<int> _subscriptionHandle;
         internal const string StreamNamespace = "HaloStreamingNamespace";
@@ -66,9 +61,9 @@ namespace UnitTests.Grains
         public async Task BecomeConsumer(Guid streamId, string providerToUse)
         {
             _logger.LogInformation("Consumer.BecomeConsumer");
-            if (String.IsNullOrEmpty(providerToUse))
+            if (string.IsNullOrEmpty(providerToUse))
             {
-                throw new ArgumentNullException("providerToUse");
+                throw new ArgumentNullException(nameof(providerToUse));
             }
             IStreamProvider streamProvider = this.GetStreamProvider(providerToUse);
             IAsyncStream<int> stream = streamProvider.GetStream<int>(StreamNamespace, streamId);
@@ -96,7 +91,7 @@ namespace UnitTests.Grains
 
         public Task<int> GetNumberConsumed()
         {
-            return Task.FromResult(_numConsumedItems); 
+            return Task.FromResult(_numConsumedItems);
         }
     }
 }

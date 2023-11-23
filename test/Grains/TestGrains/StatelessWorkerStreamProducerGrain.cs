@@ -1,7 +1,4 @@
-using System;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Orleans;
 using Orleans.Concurrency;
 using Orleans.Streams;
 using UnitTests.GrainInterfaces;
@@ -14,7 +11,7 @@ namespace UnitTests.Grains
         internal const int MaxLocalWorkers = 1;
         internal const string StreamNamespace = "StatelessWorkerStreamingNamespace";
 
-        private ILogger logger;
+        private readonly ILogger logger;
 
         public StatelessWorkerStreamProducerGrain(ILoggerFactory loggerFactory)
         {

@@ -1,8 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
 using BenchmarkGrainInterfaces.MapReduce;
 using BenchmarkGrains.MapReduce;
@@ -107,7 +102,7 @@ namespace Benchmarks.MapReduce
             _host?.Dispose();
         }
 
-        private string _text = @"Historically, the world of data and the world of objects" +
+        private readonly string _text = @"Historically, the world of data and the world of objects" +
           @" have not been well integrated. Programmers work in C# or Visual Basic" +
           @" and also in SQL or XQuery. On the one side are concepts such as classes," +
           @" objects, fields, inheritance, and .NET Framework APIs. On the other side" +

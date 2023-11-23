@@ -1,3 +1,4 @@
+#nullable enable
 using System.Diagnostics.CodeAnalysis;
 using System.Threading.Tasks;
 using Orleans.Runtime;
@@ -14,7 +15,7 @@ namespace Orleans.GrainDirectory
         /// </summary>
         /// <param name="address">The address to register.</param>
         /// <returns>The grain address which is registered in the directory immediately following this call.</returns>
-        Task<GrainAddress> Register(GrainAddress address);
+        Task<GrainAddress> Register(GrainAddress address, GrainAddress? previousRegistration);
 
         /// <summary>
         /// Deregisters a grain address from the directory.
@@ -29,14 +30,14 @@ namespace Orleans.GrainDirectory
         /// </summary>
         /// <param name="grainId">The grain id.</param>
         /// <returns>The address corresponding to the specified grain id, or <see langword="null"/> if the grain is not currently registered.</returns>
-        ValueTask<GrainAddress> Lookup(GrainId grainId);
+        ValueTask<GrainAddress?> Lookup(GrainId grainId);
 
         /// <summary>
-        /// Records a grain placement decision.
+        /// Updates the cache with a grain placement decision or known activation address.
         /// </summary>
-        /// <param name="grainId">The newly placed grain.</param>
-        /// <param name="siloAddress">The placement result.</param>
-        void CachePlacementDecision(GrainId grainId, SiloAddress siloAddress);
+        /// <param name="grainId">The grain identifier.</param>
+        /// <param name="siloAddress">The silo which may host the grain.</param>
+        void UpdateCache(GrainId grainId, SiloAddress siloAddress);
 
         /// <summary>
         /// Invalidates any lookup cache entry associated with the provided grain id.
@@ -60,6 +61,6 @@ namespace Orleans.GrainDirectory
         /// <param name="grainId">The grain id to find.</param>
         /// <param name="address">The resulting grain address, if found, or <see langword="null"/> if not found.</param>
         /// <returns>A value indicating whether a valid entry was found.</returns>
-        bool TryLookupInCache(GrainId grainId, [NotNullWhen(true)] out GrainAddress address);
+        bool TryLookupInCache(GrainId grainId, [NotNullWhen(true)] out GrainAddress? address);
     }
 }

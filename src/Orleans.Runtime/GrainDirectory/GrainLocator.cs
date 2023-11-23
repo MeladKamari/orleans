@@ -1,3 +1,6 @@
+#nullable enable
+using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Threading.Tasks;
 using Orleans.GrainDirectory;
 
@@ -15,20 +18,33 @@ namespace Orleans.Runtime.GrainDirectory
             _grainLocatorResolver = grainLocatorResolver;
         }
 
-        public ValueTask<GrainAddress> Lookup(GrainId grainId) => GetGrainLocator(grainId.Type).Lookup(grainId);
+        public ValueTask<GrainAddress?> Lookup(GrainId grainId) => GetGrainLocator(grainId.Type).Lookup(grainId);
 
-        public Task<GrainAddress> Register(GrainAddress address) => GetGrainLocator(address.GrainId.Type).Register(address);
+        public Task<GrainAddress> Register(GrainAddress address, GrainAddress? previousRegistration) => GetGrainLocator(address.GrainId.Type).Register(address, previousRegistration);
 
         public Task Unregister(GrainAddress address, UnregistrationCause cause) => GetGrainLocator(address.GrainId.Type).Unregister(address, cause);
 
-        public bool TryLookupInCache(GrainId grainId, out GrainAddress address) => GetGrainLocator(grainId.Type).TryLookupInCache(grainId, out address);
+        public bool TryLookupInCache(GrainId grainId, [NotNullWhen(true)] out GrainAddress? address) => GetGrainLocator(grainId.Type).TryLookupInCache(grainId, out address);
 
         public void InvalidateCache(GrainId grainId) => GetGrainLocator(grainId.Type).InvalidateCache(grainId);
 
         public void InvalidateCache(GrainAddress address) => GetGrainLocator(address.GrainId.Type).InvalidateCache(address);
 
-        public void CachePlacementDecision(GrainId grainId, SiloAddress siloAddress) => GetGrainLocator(grainId.Type).CachePlacementDecision(grainId, siloAddress);
-
         private IGrainLocator GetGrainLocator(GrainType grainType) => _grainLocatorResolver.GetGrainLocator(grainType);
+
+        public void UpdateCache(GrainId grainId, SiloAddress siloAddress) => GetGrainLocator(grainId.Type).UpdateCache(grainId, siloAddress);
+
+        public void UpdateCache(GrainAddressCacheUpdate update)
+        {
+            if (update.ValidGrainAddress is { } validAddress)
+            {
+                Debug.Assert(validAddress.SiloAddress is not null);
+                UpdateCache(validAddress.GrainId, validAddress.SiloAddress);
+            }
+            else
+            {
+                InvalidateCache(update.InvalidGrainAddress);
+            }
+        }
     }
 }

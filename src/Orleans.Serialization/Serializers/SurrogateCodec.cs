@@ -21,7 +21,7 @@ public sealed class SurrogateCodec<TField, TSurrogate, TConverter>
     where TSurrogate : struct
     where TConverter : IConverter<TField, TSurrogate>
 {
-    private readonly Type _fieldType;
+    private readonly Type _fieldType = typeof(TField);
     private readonly IValueSerializer<TSurrogate> _surrogateSerializer;
     private readonly IDeepCopier<TSurrogate> _surrogateCopier;
     private readonly IPopulator<TField, TSurrogate> _populator;
@@ -42,7 +42,6 @@ public sealed class SurrogateCodec<TField, TSurrogate, TConverter>
         _surrogateCopier = surrogateCopier;
         _converter = converter;
         _populator = converter as IPopulator<TField, TSurrogate>;
-        _fieldType = typeof(TField);
     }
 
     /// <inheritdoc/>
@@ -72,11 +71,22 @@ public sealed class SurrogateCodec<TField, TSurrogate, TConverter>
         if (field.FieldType is null || field.FieldType == _fieldType)
         {
             field.EnsureWireTypeTagDelimited();
-            var placeholderReferenceId = ReferenceCodec.CreateRecordPlaceholder(reader.Session);
+
+            uint placeholderReferenceId = default;
+            if (IsReferenceTrackingSupported)
+            {
+                placeholderReferenceId = ReferenceCodec.CreateRecordPlaceholder(reader.Session);
+            }
+
             TSurrogate surrogate = default;
             _surrogateSerializer.Deserialize(ref reader, ref surrogate);
             var result = _converter.ConvertFromSurrogate(in surrogate);
-            ReferenceCodec.RecordObject(reader.Session, result, placeholderReferenceId);
+
+            if (IsReferenceTrackingSupported)
+            {
+                ReferenceCodec.RecordObject(reader.Session, result, placeholderReferenceId);
+            }
+
             return result;
         }
 
@@ -86,12 +96,12 @@ public sealed class SurrogateCodec<TField, TSurrogate, TConverter>
     /// <inheritdoc/>
     public void WriteField<TBufferWriter>(ref Writer<TBufferWriter> writer, uint fieldIdDelta, Type expectedType, TField value) where TBufferWriter : IBufferWriter<byte>
     {
-        if (ReferenceCodec.TryWriteReferenceField(ref writer, fieldIdDelta, expectedType, value))
+        if (IsReferenceTrackingSupported && ReferenceCodec.TryWriteReferenceField(ref writer, fieldIdDelta, expectedType, value))
         {
             return;
         }
 
-        if (value.GetType() == typeof(TField))
+        if (value.GetType() as object == _fieldType as object)
         {
             writer.WriteStartObject(fieldIdDelta, expectedType, _fieldType);
             var surrogate = _converter.ConvertToSurrogate(in value);
@@ -103,6 +113,8 @@ public sealed class SurrogateCodec<TField, TSurrogate, TConverter>
             writer.SerializeUnexpectedType(fieldIdDelta, expectedType, value);
         }
     }
+
+    private bool IsReferenceTrackingSupported => typeof(TField) != typeof(Exception) && !typeof(TField).IsSubclassOf(typeof(Exception));
 
     /// <inheritdoc/>
     public void Serialize<TBufferWriter>(ref Writer<TBufferWriter> writer, TField value) where TBufferWriter : IBufferWriter<byte>
@@ -134,5 +146,5 @@ public sealed class SurrogateCodec<TField, TSurrogate, TConverter>
     }
 
     [DoesNotReturn]
-    private static void ThrowNoPopulatorException() => throw new NotSupportedException($"Surrogate type {typeof(TConverter)} does not implement {typeof(IPopulator<TField, TSurrogate>)} and therefore cannot be used in an inheritance hierarchy.");
+    private void ThrowNoPopulatorException() => throw new NotSupportedException($"Surrogate type {typeof(TConverter)} does not implement {typeof(IPopulator<TField, TSurrogate>)} and therefore cannot be used in an inheritance hierarchy.");
 }

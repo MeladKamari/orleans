@@ -1,8 +1,4 @@
-using System;
-using System.Collections.Generic;
 using System.Collections.Immutable;
-using System.Threading;
-using System.Threading.Tasks;
 using Orleans.Runtime;
 using Orleans.Runtime.Utilities;
 
@@ -11,7 +7,7 @@ namespace UnitTests.Directory
     internal class MockClusterMembershipService : IClusterMembershipService
     {
         private long version = 0;
-        private Dictionary<SiloAddress, (SiloStatus Status, string Name)> statuses;
+        private readonly Dictionary<SiloAddress, (SiloStatus Status, string Name)> statuses;
         private ClusterMembershipSnapshot snapshot;
         private readonly AsyncEnumerable<ClusterMembershipSnapshot> updates;
 
@@ -27,12 +23,10 @@ namespace UnitTests.Directory
         {
             this.statuses = initialStatuses ?? new Dictionary<SiloAddress, (SiloStatus Status, string Name)>();
             this.snapshot = ToSnapshot(this.statuses, ++version);
-            this.updates = this.updates = new AsyncEnumerable<ClusterMembershipSnapshot>(
-                (previous, proposed) => proposed.Version == MembershipVersion.MinValue || proposed.Version > previous.Version,
-                this.snapshot)
-            {
-                OnPublished = update => Interlocked.Exchange(ref this.snapshot, update)
-            };
+            this.updates = new AsyncEnumerable<ClusterMembershipSnapshot>(
+                initialValue: this.snapshot,
+                updateValidator: (previous, proposed) => proposed.Version > previous.Version,
+                onPublished: update => Interlocked.Exchange(ref this.snapshot, update));
         }
 
         public void UpdateSiloStatus(SiloAddress siloAddress, SiloStatus siloStatus, string name)

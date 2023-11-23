@@ -1,13 +1,7 @@
 #define COUNT_ACTIVATE_DEACTIVATE
 
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Orleans;
 using Orleans.Runtime;
 using Orleans.Streams;
 using UnitTests.GrainInterfaces;
@@ -127,7 +121,7 @@ namespace UnitTests.Grains
 
         protected void InitStream(StreamId streamId, string providerToUse)
         {
-            if (providerToUse == null) throw new ArgumentNullException("providerToUse", "Can't have null stream provider name");
+            if (providerToUse == null) throw new ArgumentNullException(nameof(providerToUse), "Can't have null stream provider name");
 
             if (State.Stream != null && !State.Stream.StreamId.Equals(streamId))
             {

@@ -38,7 +38,7 @@ namespace Orleans.Runtime
         private Catalog catalog;
         private MessageCenter messageCenter;
         private List<IIncomingGrainCallFilter> grainCallFilters;
-        private DeepCopier _deepCopier;
+        private readonly DeepCopier _deepCopier;
         private readonly InterfaceToImplementationMappingCache interfaceToImplementationMapping;
         private HostedClient hostedClient;
 
@@ -149,23 +149,17 @@ namespace Orleans.Runtime
                 sharedData = this.sharedCallbackData;
             }
 
-            var oneWay = (options & InvokeMethodOptions.OneWay) != 0;
-            if (context is null && !oneWay)
-            {
-                this.logger.LogWarning(
-                    (int)ErrorCode.IGC_SendRequest_NullContext,
-                    "Null context {Message}: {StackTrace}",
-                    message,
-                    Utils.GetStackTrace());
-            }
-
             if (message.IsExpirableMessage(this.messagingOptions.DropExpiredMessages))
             {
-                message.TimeToLive = sharedData.ResponseTimeout;
+                message.TimeToLive = request.GetDefaultResponseTimeout() ?? sharedData.ResponseTimeout;
             }
 
+            var oneWay = (options & InvokeMethodOptions.OneWay) != 0;
             if (!oneWay)
             {
+                Debug.Assert(context is not null);
+
+                // Register a callback for the request.
                 var callbackData = new CallbackData(sharedData, context, message);
                 callbacks.TryAdd((message.SendingGrain, message.Id), callbackData);
             }
@@ -206,9 +200,9 @@ namespace Orleans.Runtime
             {
                 if (message.CacheInvalidationHeader != null)
                 {
-                    foreach (GrainAddress address in message.CacheInvalidationHeader)
+                    foreach (var update in message.CacheInvalidationHeader)
                     {
-                        GrainLocator.InvalidateCache(address);
+                        GrainLocator.UpdateCache(update);
                     }
                 }
 
@@ -398,7 +392,7 @@ namespace Orleans.Runtime
                         if (message.CacheInvalidationHeader is null)
                         {
                             // Remove from local directory cache. Note that SendingGrain is the original target, since message is the rejection response.
-                            // If CacheInvalidationHeader is present, we already did this. Otherwise, we left this code for backward compatability.
+                            // If CacheInvalidationHeader is present, we already did this. Otherwise, we left this code for backward compatibility.
                             // It should be retired as we move to use CacheMgmtHeader in all relevant places.
                             this.GrainLocator.InvalidateCache(message.SendingGrain);
                         }
@@ -538,12 +532,11 @@ namespace Orleans.Runtime
         private void OnCallbackExpiryTick(object state)
         {
             var currentStopwatchTicks = ValueStopwatch.GetTimestamp();
-            var responseTimeout = this.messagingOptions.ResponseTimeout;
             foreach (var pair in callbacks)
             {
                 var callback = pair.Value;
                 if (callback.IsCompleted) continue;
-                if (callback.IsExpired(currentStopwatchTicks)) callback.OnTimeout(responseTimeout);
+                if (callback.IsExpired(currentStopwatchTicks)) callback.OnTimeout();
             }
         }
     }

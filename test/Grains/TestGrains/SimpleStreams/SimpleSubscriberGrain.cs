@@ -1,13 +1,4 @@
-using System;
-using System.Collections.Generic;
-using System.ComponentModel.DataAnnotations;
-using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
-using Newtonsoft.Json.Serialization;
-using Orleans;
 using Orleans.BroadcastChannel;
-using Orleans.Runtime;
 
 namespace UnitTests.Grains.BroadcastChannel
 {
@@ -28,8 +19,8 @@ namespace UnitTests.Grains.BroadcastChannel
 
     public abstract class SubscriberGrainBase : Grain, ISubscriberGrain, IOnBroadcastChannelSubscribed
     {
-        private Dictionary<ChannelId, List<int>> _values = new();
-        private Dictionary<ChannelId, List<Exception>> _errors = new();
+        private readonly Dictionary<ChannelId, List<int>> _values = new();
+        private readonly Dictionary<ChannelId, List<Exception>> _errors = new();
         private int _onPublishedCounter = 0;
         private bool _throwsOnReceive = false;
 

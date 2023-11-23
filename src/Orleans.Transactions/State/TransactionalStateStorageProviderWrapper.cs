@@ -5,7 +5,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Orleans.Core;
 using Orleans.Runtime;
-using Orleans.Serialization.TypeSystem;
+using Orleans.Serialization.Serializers;
 using Orleans.Storage;
 using Orleans.Transactions.Abstractions;
 
@@ -18,17 +18,19 @@ namespace Orleans.Transactions
         private readonly IGrainStorage grainStorage;
         private readonly IGrainContext context;
         private readonly ILoggerFactory loggerFactory;
+        private readonly IActivatorProvider activatorProvider;
         private readonly string stateName;
 
         private StateStorageBridge<TransactionalStateRecord<TState>>? stateStorage;
         [MemberNotNull(nameof(stateStorage))]
         private StateStorageBridge<TransactionalStateRecord<TState>> StateStorage => stateStorage ??= GetStateStorage();
 
-        public TransactionalStateStorageProviderWrapper(IGrainStorage grainStorage, string stateName, IGrainContext context, ILoggerFactory loggerFactory)
+        public TransactionalStateStorageProviderWrapper(IGrainStorage grainStorage, string stateName, IGrainContext context, ILoggerFactory loggerFactory, IActivatorProvider activatorProvider)
         {
             this.grainStorage = grainStorage;
             this.context = context;
             this.loggerFactory = loggerFactory;
+            this.activatorProvider = activatorProvider;
             this.stateName = stateName;
         }
 
@@ -97,12 +99,12 @@ namespace Orleans.Transactions
             }
 
             await stateStorage.WriteStateAsync();
-            return stateStorage.Etag;
+            return stateStorage.Etag!;
         }
 
         private StateStorageBridge<TransactionalStateRecord<TState>> GetStateStorage()
         {
-            return new(this.stateName, context.GrainId, grainStorage, loggerFactory);
+            return new(this.stateName, context, grainStorage, loggerFactory, activatorProvider);
         }
     }
 

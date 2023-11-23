@@ -1,7 +1,4 @@
-using System;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Orleans;
 using Orleans.Providers;
 using Orleans.Runtime;
 using UnitTests.GrainInterfaces;
@@ -28,7 +25,7 @@ namespace UnitTests.Grains
     [StorageProvider(ProviderName = "MemoryStore")]
     public class ChainedGrain : Grain<ChainedGrainState>, IChainedGrain
     {
-        private ILogger logger;
+        private readonly ILogger logger;
 
         public ChainedGrain(ILoggerFactory loggerFactory)
         {

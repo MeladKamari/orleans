@@ -92,7 +92,7 @@ namespace Orleans.Serialization.Buffers
         /// <param name="session">The session.</param>
         /// <returns>A new <see cref="Writer{TBufferWriter}"/>.</returns>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static Writer<PooledArrayBufferWriter> CreatePooled(SerializerSession session) => new(new PooledArrayBufferWriter(), session);
+        public static Writer<PooledBuffer> CreatePooled(SerializerSession session) => new(new PooledBuffer(), session);
     }
 
     /// <summary>
@@ -101,12 +101,13 @@ namespace Orleans.Serialization.Buffers
     /// <typeparam name="TBufferWriter">The underlying buffer writer type.</typeparam>
     public ref partial struct Writer<TBufferWriter> where TBufferWriter : IBufferWriter<byte>
     {
-#pragma warning disable IDE0044 // Add readonly modifier        
         /// <summary>
         /// The output buffer writer.
         /// </summary>
-        private TBufferWriter _output;
-#pragma warning restore IDE0044 // Add readonly modifier
+        /// <remarks>
+        /// Modifying the output directly may corrupt the state of the writer.
+        /// </remarks>
+        public TBufferWriter Output;
 
         /// <summary>
         /// The current write span.
@@ -132,9 +133,9 @@ namespace Orleans.Serialization.Buffers
         internal Writer(TBufferWriter output, SerializerSession session)
         {
             Debug.Assert(output is not SpanBufferWriter);
-            _output = output;
+            Output = output;
             Session = session;
-            _currentSpan = _output.GetSpan();
+            _currentSpan = Output.GetSpan();
             _bufferPos = default;
             _previousBuffersSize = default;
         }
@@ -143,7 +144,7 @@ namespace Orleans.Serialization.Buffers
         internal Writer(TBufferWriter output, Span<byte> span, SerializerSession session)
         {
             Debug.Assert(output is SpanBufferWriter);
-            _output = output;
+            Output = output;
             Session = session;
             _currentSpan = span;
             _bufferPos = default;
@@ -156,14 +157,14 @@ namespace Orleans.Serialization.Buffers
         {
             if (typeof(TBufferWriter).IsValueType)
             {
-                if (_output is IDisposable)
+                if (Output is IDisposable)
                 {
-                    ((IDisposable)_output).Dispose();
+                    ((IDisposable)Output).Dispose();
                 }
             }
             else
             {
-                (_output as IDisposable)?.Dispose();
+                (Output as IDisposable)?.Dispose();
             }
         }
 
@@ -174,25 +175,19 @@ namespace Orleans.Serialization.Buffers
         public SerializerSession Session { get; }
 
         /// <summary>
-        /// Gets the output buffer.
-        /// </summary>
-        /// <value>The output buffer.</value>
-        public TBufferWriter Output => _output;
-
-        /// <summary>
         /// Gets the position.
         /// </summary>
         /// <value>The position.</value>
-        public int Position => _previousBuffersSize + _bufferPos;
+        public readonly int Position => _previousBuffersSize + _bufferPos;
 
         /// <summary>
         /// Gets the current writable span.
         /// </summary>
         /// <value>The current writable span.</value>
-        public Span<byte> WritableSpan
+        public readonly Span<byte> WritableSpan
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            get => _currentSpan.Slice(_bufferPos);
+            get => _currentSpan[_bufferPos..];
         }
 
         /// <summary>
@@ -208,7 +203,7 @@ namespace Orleans.Serialization.Buffers
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Commit()
         {
-            _output.Advance(_bufferPos);
+            Output.Advance(_bufferPos);
 
             if (!typeof(TBufferWriter).IsValueType || typeof(TBufferWriter) != typeof(SpanBufferWriter))
             {
@@ -248,10 +243,10 @@ namespace Orleans.Serialization.Buffers
         public void Allocate(int sizeHint)
         {
             // Commit the bytes which have been written.
-            _output.Advance(_bufferPos);
+            Output.Advance(_bufferPos);
 
             // Request a new buffer with at least the requested number of available bytes.
-            _currentSpan = _output.GetSpan(sizeHint);
+            _currentSpan = Output.GetSpan(sizeHint);
 
             // Update internal state for the new buffer.
             _previousBuffersSize += _bufferPos;
@@ -550,7 +545,7 @@ namespace Orleans.Serialization.Buffers
 
             // Write the 2 byte overflow unconditionally
             var upper = value >> (63 - neededBytes);
-            BinaryPrimitives.WriteUInt16LittleEndian(_currentSpan.Slice(sizeof(ulong)), (ushort)upper);
+            BinaryPrimitives.WriteUInt16LittleEndian(_currentSpan[sizeof(ulong)..], (ushort)upper);
         }
     }
 }

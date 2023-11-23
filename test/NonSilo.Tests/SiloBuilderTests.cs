@@ -1,6 +1,4 @@
-using System;
 using System.Net;
-using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Orleans;
@@ -9,7 +7,6 @@ using Orleans.Configuration.Internal;
 using Orleans.Configuration.Validators;
 using Orleans.Hosting;
 using Orleans.Runtime;
-using Orleans.Runtime.MembershipService;
 using Orleans.Statistics;
 using UnitTests.Grains;
 using Xunit;
@@ -109,6 +106,33 @@ namespace NonSilo.Tests
         }
 
         /// <summary>
+        /// ClusterMembershipOptions.NumProbedSilos must be greater than ClusterMembershipOptions.NumVotesForDeathDeclaration.
+        /// </summary>
+        [Fact]
+        public async Task SiloBuilder_ClusterMembershipOptionsValidators()
+        {
+            await Assert.ThrowsAsync<OrleansConfigurationException>(async () =>
+            {
+                await new HostBuilder().UseOrleans((ctx, siloBuilder) =>
+                {
+                    siloBuilder
+                        .UseLocalhostClustering()
+                        .Configure<ClusterMembershipOptions>(options => { options.NumVotesForDeathDeclaration = 10; options.NumProbedSilos = 1; });
+                }).RunConsoleAsync();
+            });
+
+            await Assert.ThrowsAsync<OrleansConfigurationException>(async () =>
+            {
+                await new HostBuilder().UseOrleans((ctx, siloBuilder) =>
+                {
+                    siloBuilder
+                        .UseLocalhostClustering()
+                        .Configure<ClusterMembershipOptions>(options => { options.NumVotesForDeathDeclaration = 0; });
+                }).RunConsoleAsync();
+            });
+        }
+
+        /// <summary>
         /// Ensures <see cref="LoadSheddingValidator"/> fails when LoadSheddingLimit greater than 100.
         /// </summary>
         [Fact]
@@ -195,6 +219,23 @@ namespace NonSilo.Tests
                         clientBuilder.UseLocalhostClustering();
                     })
                     .UseOrleans((ctx, siloBuilder) =>
+                    {
+                        siloBuilder.UseLocalhostClustering();
+                    });
+            });
+        }
+
+        [Fact]
+        public void SiloBuilderWithHotApplicationBuilderThrowsDuringStartupIfClientBuildersAdded()
+        {
+            Assert.Throws<OrleansConfigurationException>(() =>
+            {
+                _ = Host.CreateApplicationBuilder()
+                    .UseOrleansClient(clientBuilder =>
+                    {
+                        clientBuilder.UseLocalhostClustering();
+                    })
+                    .UseOrleans(siloBuilder =>
                     {
                         siloBuilder.UseLocalhostClustering();
                     });

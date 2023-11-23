@@ -1,14 +1,11 @@
-using System.Collections.Generic;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Orleans;
 using UnitTests.GrainInterfaces;
 
 namespace UnitTests.Grains
 {
     internal class ActivateDeactivateWatcherGrain : IActivateDeactivateWatcherGrain
     {
-        private ILogger logger;
+        private readonly ILogger logger;
 
         private readonly List<string> activationCalls = new List<string>();
         private readonly List<string> deactivationCalls = new List<string>();

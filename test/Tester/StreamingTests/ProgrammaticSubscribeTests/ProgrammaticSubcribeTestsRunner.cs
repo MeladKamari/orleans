@@ -1,10 +1,5 @@
-using Orleans;
 using Orleans.Runtime;
 using Orleans.TestingHost;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Orleans.Streams.Core;
@@ -297,9 +292,9 @@ namespace Tester.StreamingTests
 
     public class SubscriptionManager
     {
-        private IGrainFactory grainFactory;
-        private IServiceProvider serviceProvider;
-        private IStreamSubscriptionManager subManager;
+        private readonly IGrainFactory grainFactory;
+        private readonly IServiceProvider serviceProvider;
+        private readonly IStreamSubscriptionManager subManager;
         public SubscriptionManager(TestCluster cluster)
         {
             this.grainFactory = cluster.GrainFactory;

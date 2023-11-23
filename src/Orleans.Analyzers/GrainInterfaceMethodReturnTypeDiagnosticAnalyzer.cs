@@ -17,6 +17,7 @@ namespace Orleans.Analyzers
             (new [] { "System", "Threading", "Tasks" }, "Task`1"),
             (new [] { "System", "Threading", "Tasks" }, "ValueTask"),
             (new [] { "System", "Threading", "Tasks" }, "ValueTask`1"),
+            (new [] { "System", "Collections", "Generic" }, "IAsyncEnumerable`1"),
             (new [] { "System" }, "Void")
         };
         public const string DiagnosticId = "ORLEANS0009";
@@ -42,6 +43,10 @@ namespace Orleans.Analyzers
             var symbol = context.SemanticModel.GetDeclaredSymbol(syntax, context.CancellationToken);
 
             if (symbol.ContainingType.TypeKind != TypeKind.Interface) return;
+
+            // allow static interface methods to return any type
+            if (symbol.IsStatic)
+                return;
 
             var isIAddressableInterface = false;
             foreach (var implementedInterface in symbol.ContainingType.AllInterfaces)

@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Net;
 using System.Threading.Tasks;
 using Consul;
 using Orleans.Messaging;
@@ -14,8 +13,8 @@ namespace Orleans.Runtime.Membership
     public class ConsulGatewayListProvider : IGatewayListProvider
     {
         private IConsulClient consulClient;
-        private string clusterId;
-        private ILogger logger;
+        private readonly string clusterId;
+        private readonly ILogger logger;
         private readonly ConsulClusteringOptions options;
         private readonly TimeSpan maxStaleness;
         private readonly string kvRootFolder;

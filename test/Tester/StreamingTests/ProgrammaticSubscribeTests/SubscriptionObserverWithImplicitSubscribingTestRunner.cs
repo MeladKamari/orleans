@@ -1,6 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.Threading.Tasks;
 using Orleans.TestingHost.Utils;
 using TestExtensions;
 using UnitTests.GrainInterfaces;
@@ -16,7 +13,7 @@ namespace Tester.StreamingTests.ProgrammaticSubscribeTests
         //test utilities and statics
         public static string StreamProviderName = "StreamProvider1";
         public static string StreamProviderName2 = "StreamProvider2";
-        private BaseTestClusterFixture fixture;
+        private readonly BaseTestClusterFixture fixture;
         public SubscriptionObserverWithImplicitSubscribingTestRunner(BaseTestClusterFixture fixture)
         {
             this.fixture = fixture;

@@ -10,7 +10,6 @@ using Orleans.Metadata;
 using Orleans.Runtime.Messaging;
 using Orleans.Runtime.Placement;
 using Orleans.Runtime.Providers;
-using Orleans.Runtime.Scheduler;
 using Orleans.Runtime.Versions;
 using Orleans.Runtime.Versions.Compatibility;
 using Orleans.Runtime.Versions.Selector;
@@ -62,7 +61,7 @@ namespace Orleans.Hosting
 
             services.AddSingleton<Silo>();
             services.AddHostedService<SiloHostedService>();
-            services.PostConfigure<SiloOptions>(options => options.SiloName ??= $"Silo_{Guid.NewGuid().ToString("N").Substring(0, 5)}");
+            services.PostConfigure<SiloOptions>(options => options.SiloName ??= $"Silo_{Guid.NewGuid().ToString("N")[..5]}");
             services.TryAddSingleton<ILocalSiloDetails, LocalSiloDetails>();
             services.TryAddSingleton<SiloLifecycleSubject>();
             services.TryAddFromExisting<ISiloLifecycleSubject, SiloLifecycleSubject>();
@@ -310,6 +309,7 @@ namespace Orleans.Hosting
             services.AddTransient<IConfigurationValidator, DevelopmentClusterMembershipOptionsValidator>();
             services.AddTransient<IConfigurationValidator, GrainTypeOptionsValidator>();
             services.AddTransient<IValidateOptions<SiloMessagingOptions>, SiloMessagingOptionsValidator>();
+            services.AddTransient<IOptions<MessagingOptions>>(static sp => sp.GetRequiredService<IOptions<SiloMessagingOptions>>());
 
             // Enable hosted client.
             services.TryAddSingleton<HostedClient>();
@@ -328,7 +328,7 @@ namespace Orleans.Hosting
                         if (attr != null)
                         {
                             var className = RuntimeTypeNameFormatter.Format(grainClass);
-                            options.ClassSpecificCollectionAge[className] = attr.Amount;
+                            options.ClassSpecificCollectionAge[className] = attr.AgeLimit;
                         }
                     }
                 });
@@ -344,6 +344,12 @@ namespace Orleans.Hosting
             services.TryAddSingleton<IGrainStorageSerializer, JsonGrainStorageSerializer>();
             services.TryAddSingleton<IPersistentStateFactory, PersistentStateFactory>();
             services.TryAddSingleton(typeof(IAttributeToFactoryMapper<PersistentStateAttribute>), typeof(PersistentStateAttributeMapper));
+
+            // IAsyncEnumerable support
+            services.AddScoped<IAsyncEnumerableGrainExtension, AsyncEnumerableGrainExtension>();
+            services.AddTransientKeyedService<Type, IGrainExtension>(
+                typeof(IAsyncEnumerableGrainExtension),
+                (sp, _) => sp.GetRequiredService<IAsyncEnumerableGrainExtension>());
 
             // Networking
             services.TryAddSingleton<ConnectionCommon>();
@@ -384,6 +390,11 @@ namespace Orleans.Hosting
             services.AddSingleton<ILifecycleParticipant<ISiloLifecycle>, GatewayConnectionListener>();
             services.AddSingleton<SocketSchedulers>();
             services.AddSingleton<SharedMemoryPool>();
+
+            // Activation migration
+            services.AddSingleton<MigrationContext.SerializationHooks>();
+            services.AddSingleton<ActivationMigrationManager>();
+            services.AddFromExisting<IActivationMigrationManager, ActivationMigrationManager>();
         }
 
         private class AllowOrleansTypes : ITypeNameFilter

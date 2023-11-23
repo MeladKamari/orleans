@@ -1,3 +1,4 @@
+#nullable enable
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
@@ -12,7 +13,7 @@ namespace Orleans.GrainDirectory
     /// The methods here can be called remotely (where extended by IRemoteGrainDirectory) or
     /// locally (where extended by ILocalGrainDirectory)
     /// </summary>
-    interface IDhtGrainDirectory
+    internal interface IDhtGrainDirectory
     {
         /// <summary>
         /// Record a new grain activation by adding it to the directory.
@@ -22,6 +23,16 @@ namespace Orleans.GrainDirectory
         /// <param name="hopCount">Counts recursion depth across silos</param>
         /// <returns>The registered address and the version associated with this directory mapping.</returns>
         Task<AddressAndTag> RegisterAsync(GrainAddress address, int hopCount = 0);
+
+        /// <summary>
+        /// Record a new grain activation by adding it to the directory.
+        /// <para>This method must be called from a scheduler thread.</para>
+        /// </summary>
+        /// <param name="address">The address of the new activation.</param>
+        /// <param name="currentRegistration">The existing registration, which may be null.</param>
+        /// <param name="hopCount">Counts recursion depth across silos</param>
+        /// <returns>The registered address and the version associated with this directory mapping.</returns>
+        Task<AddressAndTag> RegisterAsync(GrainAddress address, GrainAddress? currentRegistration, int hopCount = 0);
 
         /// <summary>
         /// Removes the record for an existing activation from the directory service.
@@ -76,7 +87,7 @@ namespace Orleans.GrainDirectory
         /// The address.
         /// </summary>
         [Id(0)]
-        public readonly GrainAddress Address;
+        public readonly GrainAddress? Address;
        
         /// <summary>
         /// The version of this entry.
@@ -84,7 +95,7 @@ namespace Orleans.GrainDirectory
         [Id(1)]
         public readonly int VersionTag;
 
-        public AddressAndTag(GrainAddress address, int versionTag)
+        public AddressAndTag(GrainAddress? address, int versionTag)
         {
             Address = address;
             VersionTag = versionTag;

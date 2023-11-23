@@ -410,8 +410,9 @@ namespace Orleans.Runtime.GrainDirectory
             return owner;
         }
 
+        public Task<AddressAndTag> RegisterAsync(GrainAddress address, int hopCount) => RegisterAsync(address, previousAddress: null, hopCount: hopCount);
 
-        public async Task<AddressAndTag> RegisterAsync(GrainAddress address, int hopCount)
+        public async Task<AddressAndTag> RegisterAsync(GrainAddress address, GrainAddress? previousAddress, int hopCount)
         {
             if (hopCount > 0)
             {
@@ -446,7 +447,7 @@ namespace Orleans.Runtime.GrainDirectory
             {
                 DirectoryInstruments.RegistrationsSingleActLocal.Add(1);
 
-                var result = DirectoryPartition.AddSingleActivation(address);
+                var result = DirectoryPartition.AddSingleActivation(address, previousAddress);
                 return result;
             }
             else
@@ -454,10 +455,10 @@ namespace Orleans.Runtime.GrainDirectory
                 DirectoryInstruments.RegistrationsSingleActRemoteSent.Add(1);
 
                 // otherwise, notify the owner
-                AddressAndTag result = await GetDirectoryReference(forwardAddress).RegisterAsync(address, hopCount + 1);
+                AddressAndTag result = await GetDirectoryReference(forwardAddress).RegisterAsync(address, previousAddress, hopCount + 1);
 
                 // Caching optimization:
-                // cache the result of a successfull RegisterSingleActivation call, only if it is not a duplicate activation.
+                // cache the result of a successful RegisterSingleActivation call, only if it is not a duplicate activation.
                 // this way next local lookup will find this ActivationAddress in the cache and we will save a full lookup!
                 if (result.Address == null) return result;
 
@@ -816,7 +817,7 @@ namespace Orleans.Runtime.GrainDirectory
             return this.directoryMembership.MembershipCache.Contains(silo);
         }
 
-        public void CachePlacementDecision(GrainId grainId, SiloAddress siloAddress) => this.DirectoryCache.AddOrUpdate(new GrainAddress { GrainId = grainId, SiloAddress = siloAddress }, 0);
+        public void AddOrUpdateCacheEntry(GrainId grainId, SiloAddress siloAddress) => this.DirectoryCache.AddOrUpdate(new GrainAddress { GrainId = grainId, SiloAddress = siloAddress }, 0);
         public bool TryCachedLookup(GrainId grainId, [NotNullWhen(true)] out GrainAddress? address) => (address = GetLocalCacheData(grainId)) is not null;
 
         private class DirectoryMembership

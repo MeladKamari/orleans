@@ -1,13 +1,7 @@
-
-using System;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
-using Orleans;
 using Orleans.Configuration;
-using Orleans.Hosting;
 using Orleans.Providers;
-using Orleans.Runtime;
 using Orleans.TestingHost;
 using TestExtensions;
 using Xunit;
@@ -47,7 +41,7 @@ namespace Tester.StreamingTests
         private readonly ITestOutputHelper output = null;
         private readonly ClientStreamTestRunner runner;
 
-        private Fixture fixture;
+        private readonly Fixture fixture;
 
         public MemoryStreamProviderClientTests(Fixture fixture)
         {

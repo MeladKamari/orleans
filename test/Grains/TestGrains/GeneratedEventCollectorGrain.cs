@@ -1,12 +1,5 @@
-
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Orleans;
 using Orleans.Providers.Streams.Generator;
-using Orleans.Runtime;
 using Orleans.Streams;
 using TestGrainInterfaces;
 using UnitTests.Grains;
@@ -19,7 +12,7 @@ namespace TestGrains
     {
         public const string StreamNamespace = "Generated";
 
-        private ILogger logger;
+        private readonly ILogger logger;
         private IAsyncStream<GeneratedEvent> stream;
         private int accumulated;
 

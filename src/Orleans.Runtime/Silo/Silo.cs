@@ -14,9 +14,7 @@ using Orleans.Runtime.Messaging;
 using Orleans.Runtime.Scheduler;
 using Orleans.Services;
 using Orleans.Configuration;
-using Orleans.Serialization;
 using Orleans.Internal;
-using Orleans.Hosting;
 
 namespace Orleans.Runtime
 {
@@ -256,7 +254,7 @@ namespace Orleans.Runtime
             lock (lockable)
             {
                 if (!this.SystemStatus.Equals(SystemStatus.Created))
-                    throw new InvalidOperationException(String.Format("Calling Silo.Start() on a silo which is not in the Created state. This silo is in the {0} state.", this.SystemStatus));
+                    throw new InvalidOperationException(string.Format("Calling Silo.Start() on a silo which is not in the Created state. This silo is in the {0} state.", this.SystemStatus));
 
                 this.SystemStatus = SystemStatus.Starting;
             }
@@ -600,14 +598,14 @@ namespace Orleans.Runtime
             {
                 await lifecycleSchedulingSystemTarget
                     .QueueTask(() => this.messageCenter.Gateway.SendStopSendMessages(this.grainFactory))
-                    .WithCancellation(ct, "Sending gateway disconnection requests failed because the task was cancelled");
+                    .WithCancellation("Sending gateway disconnection requests failed because the task was cancelled", ct);
             }
 
             foreach (var grainService in grainServices)
             {
                 await grainService
                     .QueueTask(grainService.Stop)
-                    .WithCancellation(ct, "Stopping GrainService failed because the task was cancelled");
+                    .WithCancellation("Stopping GrainService failed because the task was cancelled", ct);
 
                 if (this.logger.IsEnabled(LogLevel.Debug))
                 {

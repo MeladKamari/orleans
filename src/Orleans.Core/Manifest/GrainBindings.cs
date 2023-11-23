@@ -94,7 +94,7 @@ namespace Orleans.Metadata
         /// <summary>
         /// Gets all bindings.
         /// </summary>
-        /// <returns>The colleciton of all grain bindings.</returns>
+        /// <returns>The collection of all grain bindings.</returns>
         public (MajorMinorVersion Version, ImmutableDictionary<GrainType, GrainBindings> Bindings) GetAllBindings()
         {
             var cache = GetCache();
@@ -169,8 +169,8 @@ namespace Orleans.Metadata
                     return false;
                 }
 
-                var bindingIndex = property.Key.Substring(BindingPrefix.Length, indexEndIndex - BindingPrefix.Length);
-                var bindingKey = property.Key.Substring(indexEndIndex + 1);
+                var bindingIndex = property.Key[BindingPrefix.Length..indexEndIndex];
+                var bindingKey = property.Key[(indexEndIndex + 1)..];
 
                 if (string.IsNullOrWhiteSpace(bindingIndex) || string.IsNullOrWhiteSpace(bindingKey))
                 {

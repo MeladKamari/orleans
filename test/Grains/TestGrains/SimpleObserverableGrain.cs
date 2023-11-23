@@ -1,8 +1,4 @@
-using System;
-using System.Threading;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Orleans;
 using Orleans.Utilities;
 using UnitTests.GrainInterfaces;
 
@@ -10,7 +6,7 @@ namespace UnitTests.Grains
 {
     public class SimpleObserverableGrain : Grain, ISimpleObserverableGrain
     {
-        private ILogger logger;
+        private readonly ILogger logger;
         internal int A { get; set; }
         internal int B { get; set; }
         internal int EventDelay { get; set; }
@@ -36,7 +32,7 @@ namespace UnitTests.Grains
 
             //If this were run with Task.Run there were no need for the added Unwrap call.
             //However, Task.Run runs in ThreadPool and not in Orleans TaskScheduler, unlike Task.Factory.StartNew.
-            //See more at https://docs.microsoft.com/dotnet/orleans/grains/external-tasks-and-grains.
+            //See more at https://learn.microsoft.com/dotnet/orleans/grains/external-tasks-and-grains.
             //The extra task comes from the internal asynchronous lambda due to Task.Delay. For deeper
             //insight, see at http://blogs.msdn.com/b/pfxteam/archive/2012/02/08/10265476.aspx.
             await Task.Factory.StartNew(async () =>
@@ -52,7 +48,7 @@ namespace UnitTests.Grains
 
             //If this were run with Task.Run there were no need for the added Unwrap call.
             //However, Task.Run runs in ThreadPool and not in Orleans TaskScheduler, unlike Task.Factory.StartNew.
-            //See more at https://docs.microsoft.com/dotnet/orleans/grains/external-tasks-and-grains.
+            //See more at https://learn.microsoft.com/dotnet/orleans/grains/external-tasks-and-grains.
             //The extra task comes from the internal asynchronous lambda due to Task.Delay. For deeper
             //insight, see at http://blogs.msdn.com/b/pfxteam/archive/2012/02/08/10265476.aspx.
             await Task.Factory.StartNew(async () =>

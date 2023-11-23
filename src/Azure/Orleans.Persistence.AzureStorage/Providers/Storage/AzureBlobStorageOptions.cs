@@ -4,7 +4,7 @@ using Azure;
 using Azure.Core;
 using Azure.Storage;
 using Azure.Storage.Blobs;
-using Newtonsoft.Json;
+using Microsoft.Extensions.DependencyInjection;
 using Orleans.Persistence.AzureStorage;
 using Orleans.Runtime;
 using Orleans.Storage;
@@ -36,7 +36,13 @@ namespace Orleans.Configuration
         public const int DEFAULT_INIT_STAGE = ServiceLifecycleStage.ApplicationServices;
 
         /// <inheritdoc/>
-        public IGrainStorageSerializer GrainStorageSerializer { get; set;}
+        public IGrainStorageSerializer GrainStorageSerializer { get; set; }
+
+        /// <summary>
+        /// A function for building container factory instances
+        /// </summary>
+        public Func<IServiceProvider, AzureBlobStorageOptions, IBlobContainerFactory> BuildContainerFactory { get; set; }
+            = static (provider, options) => ActivatorUtilities.CreateInstance<DefaultBlobContainerFactory>(provider, options);
 
         /// <summary>
         /// Configures the <see cref="BlobServiceClient"/> using a connection string.

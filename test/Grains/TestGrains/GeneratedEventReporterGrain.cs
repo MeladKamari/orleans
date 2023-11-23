@@ -1,17 +1,12 @@
-using System;
-using System.Collections.Generic;
-using System.Threading;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Orleans;
 using Orleans.Runtime;
 using TestGrainInterfaces;
 
 namespace TestGrains
 {
-    class GeneratedEventReporterGrain : Grain, IGeneratedEventReporterGrain
+    internal class GeneratedEventReporterGrain : Grain, IGeneratedEventReporterGrain
     {
-        private ILogger logger;
+        private readonly ILogger logger;
 
         private Dictionary<Tuple<string, string>, Dictionary<Guid, int>> reports;
 

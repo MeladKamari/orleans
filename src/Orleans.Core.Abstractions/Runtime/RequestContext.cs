@@ -1,7 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
 using System.Threading;
 using Orleans.Core.Internal;
 
@@ -26,7 +24,7 @@ namespace Orleans.Runtime
         internal const string CALL_CHAIN_REENTRANCY_HEADER = "#CCR";
         internal const string PING_APPLICATION_HEADER = "Ping";
 
-        internal static readonly AsyncLocal<ContextProperties> CallContextData = new AsyncLocal<ContextProperties>();
+        internal static readonly AsyncLocal<ContextProperties> CallContextData = new();
 
         public static Guid ReentrancyId
         {
@@ -161,6 +159,16 @@ namespace Orleans.Runtime
                 CallContextData.Value = default;
             }
         }
+
+        /// <summary>
+        /// Gets the collection of keys for the values currently in the request context.
+        /// </summary>
+        public static IEnumerable<string> Keys => CallContextData.Value.Values.Keys;
+
+        /// <summary>
+        /// Gets the collection of entries currently in the request context.
+        /// </summary>
+        public static IEnumerable<KeyValuePair<string, object>> Entries => CallContextData.Value.Values;
 
         internal readonly struct ContextProperties
         {

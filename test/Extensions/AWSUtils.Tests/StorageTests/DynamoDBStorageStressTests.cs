@@ -1,11 +1,7 @@
 ﻿using Amazon.DynamoDBv2.Model;
 using Orleans.TestingHost.Utils;
-using System;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
-using System.Linq;
-using System.Threading.Tasks;
 using AWSUtils.Tests.StorageTests.AWSUtils;
 using Xunit;
 using Xunit.Abstractions;
@@ -16,8 +12,8 @@ namespace AWSUtils.Tests.StorageTests
     public class DynamoDBStorageStressTests : IClassFixture<DynamoDBStorageTestsFixture>
     {
         private readonly ITestOutputHelper output;
-        private string PartitionKey;
-        private UnitTestDynamoDBStorage manager;
+        private readonly string PartitionKey;
+        private readonly UnitTestDynamoDBStorage manager;
 
         public DynamoDBStorageStressTests(DynamoDBStorageTestsFixture fixture, ITestOutputHelper output)
         {
